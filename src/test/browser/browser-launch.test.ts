@@ -56,6 +56,7 @@ describe('browser launch', () => {
             const contents = JSON.parse(message.toString());
             ws.send(JSON.stringify({ id: contents.id, error: { message: 'Fake websocket' } }));
             resolve(message.toString()); // We resolve with the contents of the first message we receive
+            ws.close();
           });
         });
       });
@@ -106,7 +107,7 @@ describe('constructInspectorWSUri', () => {
 
   it('fails with an useful error for invalid urls', () => {
     expect(() => constructInspectorWSUri(inspectUri, '.not_an_url', browserWsInspectUri)).to.throw(
-      'Invalid URL: .not_an_url',
+      /Invalid URL/,
     );
     expect(() => constructInspectorWSUri(inspectUri, null, browserWsInspectUri)).to.throw(
       `A valid url wasn't supplied: <null>`,

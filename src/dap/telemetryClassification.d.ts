@@ -88,6 +88,8 @@ interface IDAPOperationClassification {
   '!exceptioninfo.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   readmemory: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!readmemory.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  writememory: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!writememory.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   disassemble: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!disassemble.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   enablecustombreakpoints: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
@@ -124,4 +126,6 @@ interface IDAPOperationClassification {
   '!creatediagnostics.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   requestcdpproxy: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!requestcdpproxy.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  setexcludedcallers: { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!setexcludedcallers.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
 }

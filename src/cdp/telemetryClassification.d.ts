@@ -7,6 +7,10 @@
 
 interface ICDPOperationClassification {
   // Domain: Accessibility
+  'accessibility.loadcomplete': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!accessibility.loadcomplete.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'accessibility.nodesupdated': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!accessibility.nodesupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
 
   // Domain: Animation
   'animation.animationcanceled': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
@@ -15,12 +19,6 @@ interface ICDPOperationClassification {
   '!animation.animationcreated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   'animation.animationstarted': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!animation.animationstarted.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
-
-  // Domain: ApplicationCache
-  'applicationcache.applicationcachestatusupdated': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
-  '!applicationcache.applicationcachestatusupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
-  'applicationcache.networkstateupdated': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
-  '!applicationcache.networkstateupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
 
   // Domain: Audits
   'audits.issueadded': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
@@ -127,6 +125,8 @@ interface ICDPOperationClassification {
   // Domain: Emulation
   'emulation.virtualtimebudgetexpired': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!emulation.virtualtimebudgetexpired.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+
+  // Domain: EventBreakpoints
 
   // Domain: Fetch
   'fetch.requestpaused': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
@@ -239,6 +239,20 @@ interface ICDPOperationClassification {
   '!network.responsereceivedextrainfo.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   'network.trusttokenoperationdone': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!network.trusttokenoperationdone.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.subresourcewebbundlemetadatareceived': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.subresourcewebbundlemetadatareceived.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.subresourcewebbundlemetadataerror': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.subresourcewebbundlemetadataerror.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.subresourcewebbundleinnerresponseparsed': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.subresourcewebbundleinnerresponseparsed.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.subresourcewebbundleinnerresponseerror': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.subresourcewebbundleinnerresponseerror.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.reportingapireportadded': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.reportingapireportadded.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.reportingapireportupdated': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.reportingapireportupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'network.reportingapiendpointschangedfororigin': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!network.reportingapiendpointschangedfororigin.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
 
   // Domain: NodeRuntime
   'noderuntime.waitingfordisconnect': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
@@ -383,6 +397,8 @@ interface ICDPOperationClassification {
   '!storage.indexeddbcontentupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
   'storage.indexeddblistupdated': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
   '!storage.indexeddblistupdated.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
+  'storage.interestgroupaccessed': { classification: 'SystemMetaData'; purpose: 'PerformanceAndHealth' };
+  '!storage.interestgroupaccessed.errors': { classification: 'CallstackOrException'; purpose: 'PerformanceAndHealth' };
 
   // Domain: SystemInfo
 

@@ -9,6 +9,7 @@ import {
   Commands,
   Configuration,
   Contributions,
+  CustomViews,
   DebugType,
   IConfigurationTypes,
   preferredDebugTypes,
@@ -53,7 +54,6 @@ type OmittedKeysFromAttributes =
   | '__breakOnConditionalError'
   | '__workspaceFolder'
   | '__workspaceCachePath'
-  | '__autoExpandGetters'
   | '__remoteFilePrefix'
   | '__sessionId';
 
@@ -1059,14 +1059,22 @@ function buildDebuggers() {
   };
 
   for (const d of debuggers) {
+    const preferred = preferredDebugTypes.get(d.type);
     const primary = ensureEntryForType(d.type, d);
     const entries = [primary];
-    const preferred = preferredDebugTypes.get(d.type);
     if (preferred) {
-      entries.unshift(ensureEntryForType(preferred, d));
+      const entry = ensureEntryForType(preferred, d);
+      delete entry.languages;
+      entries.unshift(entry);
     }
 
     entries[0].configurationSnippets.push(...d.configurationSnippets);
+
+    if (preferred) {
+      for (const snippet of entries[0].configurationSnippets) {
+        snippet.type = preferred;
+      }
+    }
 
     for (const entry of entries) {
       entry.configurationAttributes[d.request] = {
@@ -1129,11 +1137,6 @@ const configurationSchema: ConfigurationAttributes<IConfigurationTypes> = {
     default: {},
     markdownDescription: refString('configuration.pickAndAttachOptions'),
     properties: nodeAttachConfig.configurationAttributes as { [key: string]: JSONSchema6 },
-  },
-  [Configuration.AutoExpandGetters]: {
-    type: 'boolean',
-    default: false,
-    markdownDescription: refString('configuration.autoExpandGetters'),
   },
   [Configuration.AutoAttachMode]: {
     type: 'string',
@@ -1272,6 +1275,31 @@ const commands: ReadonlyArray<{
     icon: '$(inspect)',
     category: 'Debug',
   },
+  {
+    command: Commands.CallersAdd,
+    title: refString('commands.callersAdd.label'),
+    category: 'Debug',
+  },
+  {
+    command: Commands.CallersRemove,
+    title: refString('commands.callersRemove.label'),
+    icon: '$(close)',
+  },
+  {
+    command: Commands.CallersRemoveAll,
+    title: refString('commands.callersRemoveAll.label'),
+    icon: '$(clear-all)',
+  },
+  {
+    command: Commands.CallersGoToCaller,
+    title: refString('commands.callersGoToCaller.label'),
+    icon: '$(call-outgoing)',
+  },
+  {
+    command: Commands.CallersGoToTarget,
+    title: refString('commands.callersGoToTarget.label'),
+    icon: '$(call-incoming)',
+  },
 ];
 
 const menus: Menus = {
@@ -1310,6 +1338,19 @@ const menus: Menus = {
       title: refString('openEdgeDevTools.label'),
       when: `debugType == ${DebugType.Edge}`,
     },
+    {
+      command: Commands.CallersAdd,
+      title: refString('commands.callersAdd.paletteLabel'),
+      when: forAnyDebugType('debugType', 'debugState == "stopped"'),
+    },
+    {
+      command: Commands.CallersGoToCaller,
+      when: 'false',
+    },
+    {
+      command: Commands.CallersGoToTarget,
+      when: 'false',
+    },
   ],
   'debug/callstack/context': [
     {
@@ -1342,6 +1383,10 @@ const menus: Menus = {
       group: 'inline',
       when: forAnyDebugType('debugType', 'jsDebugIsProfiling'),
     },
+    {
+      command: Commands.CallersAdd,
+      when: forAnyDebugType('debugType', `callStackItemType == 'stackFrame'`),
+    },
   ],
   'debug/toolBar': [
     {
@@ -1356,26 +1401,47 @@ const menus: Menus = {
   'view/title': [
     {
       command: Commands.AddCustomBreakpoints,
-      when: 'view == jsBrowserBreakpoints',
+      when: `view == ${CustomViews.BrowserBreakpoints}`,
     },
     {
       command: Commands.RemoveAllCustomBreakpoints,
-      when: 'view == jsBrowserBreakpoints',
+      when: `view == ${CustomViews.BrowserBreakpoints}`,
+    },
+    {
+      command: Commands.CallersRemoveAll,
+      group: 'navigation',
+      when: `view == ${CustomViews.ExcludedCallers}`,
     },
   ],
   'view/item/context': [
     {
       command: Commands.RemoveCustomBreakpoint,
-      when: 'view == jsBrowserBreakpoints',
+      when: `view == ${CustomViews.BrowserBreakpoints}`,
       group: 'inline',
     },
     {
       command: Commands.AddCustomBreakpoints,
-      when: 'view == jsBrowserBreakpoints',
+      when: `view == ${CustomViews.BrowserBreakpoints}`,
     },
     {
       command: Commands.RemoveCustomBreakpoint,
-      when: 'view == jsBrowserBreakpoints',
+      when: `view == ${CustomViews.BrowserBreakpoints}`,
+    },
+
+    {
+      command: Commands.CallersGoToCaller,
+      group: 'inline',
+      when: `view == ${CustomViews.ExcludedCallers}`,
+    },
+    {
+      command: Commands.CallersGoToTarget,
+      group: 'inline',
+      when: `view == ${CustomViews.ExcludedCallers}`,
+    },
+    {
+      command: Commands.CallersRemove,
+      group: 'inline',
+      when: `view == ${CustomViews.ExcludedCallers}`,
     },
   ],
 };
@@ -1408,6 +1474,21 @@ const viewsWelcome = [
   },
 ];
 
+const views = {
+  debug: [
+    {
+      id: CustomViews.BrowserBreakpoints,
+      name: 'Browser breakpoints',
+      when: forBrowserDebugType('debugType'),
+    },
+    {
+      id: CustomViews.ExcludedCallers,
+      name: 'Excluded Callers',
+      when: forAnyDebugType('debugType', 'jsDebugHasExcludedCallers'),
+    },
+  ],
+};
+
 if (require.main === module) {
   process.stdout.write(
     JSON.stringify({
@@ -1424,6 +1505,7 @@ if (require.main === module) {
           ...[...debuggers.map(dbg => dbg.type), ...preferredDebugTypes.values()].map(
             t => `onDebugResolve:${t}`,
           ),
+          ...views.debug.map(v => `onView:${v.id}`),
           `onWebviewPanel:${Contributions.DiagnosticsView}`,
         ]),
       ),
@@ -1437,6 +1519,7 @@ if (require.main === module) {
           title: 'JavaScript Debugger',
           properties: configurationSchema,
         },
+        views,
         viewsWelcome,
       },
     }),

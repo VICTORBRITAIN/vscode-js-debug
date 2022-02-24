@@ -30,7 +30,7 @@ export class BasicResourceProvider implements IResourceProvider {
   ): Promise<Response<string>> {
     try {
       const r = dataUriToBuffer(url);
-      return { ok: true, body: r.toString('utf-8'), statusCode: 200 };
+      return { ok: true, url, body: r.toString('utf-8'), statusCode: 200 };
     } catch {
       // assume it's a remote url
     }
@@ -38,9 +38,14 @@ export class BasicResourceProvider implements IResourceProvider {
     const absolutePath = isAbsolute(url) ? url : fileUrlToAbsolutePath(url);
     if (absolutePath) {
       try {
-        return { ok: true, body: await this.fs.readFile(absolutePath, 'utf-8'), statusCode: 200 };
+        return {
+          ok: true,
+          url,
+          body: await this.fs.readFile(absolutePath, 'utf-8'),
+          statusCode: 200,
+        };
       } catch (error) {
-        return { ok: false, error, statusCode: 200 };
+        return { ok: false, url, error, statusCode: 200 };
       }
     }
 
@@ -65,7 +70,7 @@ export class BasicResourceProvider implements IResourceProvider {
     try {
       return { ...res, body: JSON.parse(res.body) };
     } catch (error) {
-      return { ...res, ok: false, error };
+      return { ...res, ok: false, url, error };
     }
   }
 
@@ -74,12 +79,33 @@ export class BasicResourceProvider implements IResourceProvider {
     cancellationToken: CancellationToken,
     headers?: Headers,
   ): Promise<Response<string>> {
-    const isSecure = !url.startsWith('http://');
+    const parsed = new URL(url);
+
+    const isSecure = parsed.protocol !== 'http:';
     const options: OptionsOfTextResponseBody = { headers, followRedirect: true };
     if (isSecure && (await isLoopback(url))) {
       options.rejectUnauthorized = false;
     }
 
+    this.options?.provideOptions(options, url);
+
+    const response = await this.requestHttp(url, options, cancellationToken);
+
+    // Try 127.0.0.1 if localhost fails, see https://github.com/microsoft/vscode/issues/140536#issuecomment-1011281962
+    // The statusCode will be 503 on ECONNREFUSED
+    if (response.statusCode === 503 && parsed.hostname === 'localhost') {
+      parsed.hostname = '127.0.0.1';
+      return this.requestHttp(parsed.toString(), options, cancellationToken);
+    }
+
+    return response;
+  }
+
+  private async requestHttp(
+    url: string,
+    options: OptionsOfTextResponseBody,
+    cancellationToken: CancellationToken,
+  ): Promise<Response<string>> {
     this.options?.provideOptions(options, url);
 
     const disposables = new DisposableList();
@@ -89,7 +115,7 @@ export class BasicResourceProvider implements IResourceProvider {
       disposables.push(cancellationToken.onCancellationRequested(() => request.cancel()));
 
       const response = await request;
-      return { ok: true, body: response.body, statusCode: response.statusCode };
+      return { ok: true, url, body: response.body, statusCode: response.statusCode };
     } catch (error) {
       if (!(error instanceof RequestError)) {
         throw error;
@@ -101,8 +127,11 @@ export class BasicResourceProvider implements IResourceProvider {
         ok: false,
         body,
         statusCode,
+        url,
         error: new HttpStatusError(statusCode, url, body),
       };
+    } finally {
+      disposables.dispose();
     }
   }
 }

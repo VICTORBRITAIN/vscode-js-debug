@@ -485,6 +485,15 @@ const dapCustom: JSONSchema4 = {
       "Shows a prompt to the user suggesting they use the diagnostic tool if breakpoints don't bind.",
       {},
     ),
+    ...makeEvent('openDiagnosticTool', "Opens the diagnostic tool if breakpoints don't bind.", {
+      properties: {
+        file: {
+          type: 'string',
+          description: 'Location of the generated report on disk',
+        },
+      },
+      required: ['file'],
+    }),
     ...makeRequest(
       'requestCDPProxy',
       'Request WebSocket connection information on a proxy for this debug sessions CDP connection.',
@@ -509,6 +518,47 @@ const dapCustom: JSONSchema4 = {
         },
       },
     ),
+
+    CallerLocation: {
+      type: 'object',
+      required: ['line', 'column', 'source'],
+      properties: {
+        line: {
+          type: 'integer',
+        },
+        column: {
+          type: 'integer',
+        },
+        source: {
+          $ref: '#/definitions/Source',
+          description: 'Source to be pretty printed.',
+        },
+      },
+    },
+    ExcludedCaller: {
+      type: 'object',
+      required: ['target', 'caller'],
+      properties: {
+        target: {
+          $ref: '#/definitions/CallerLocation',
+        },
+        caller: {
+          $ref: '#/definitions/CallerLocation',
+        },
+      },
+    },
+
+    ...makeRequest('setExcludedCallers', 'Adds an excluded caller/target pair.', {
+      properties: {
+        callers: {
+          type: 'array',
+          items: {
+            $ref: '#/definitions/ExcludedCaller',
+          },
+        },
+      },
+      required: ['callers'],
+    }),
   },
 };
 

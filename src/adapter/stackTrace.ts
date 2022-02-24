@@ -12,7 +12,7 @@ import { ProtocolError } from '../dap/protocolError';
 import { shouldStepOverStackFrame, StackFrameStepOverReason } from './smartStepping';
 import { IPreferredUiLocation, SourceConstants } from './sources';
 import { RawLocation, Thread } from './threads';
-import { IExtraProperty, IScopeRef } from './variables';
+import { IExtraProperty, IScopeRef, IVariableContainer } from './variableStore';
 
 const localize = nls.loadMessageBundle();
 
@@ -136,6 +136,12 @@ export class StackTrace {
     this._frameById.set(frame._id, frame);
   }
 
+  async formatAsNative(): Promise<string> {
+    const stackFrames = await this.loadFrames(50);
+    const promises = stackFrames.map(frame => frame.formatAsNative());
+    return (await Promise.all(promises)).join('\n') + '\n';
+  }
+
   async format(): Promise<string> {
     const stackFrames = await this.loadFrames(50);
     const promises = stackFrames.map(frame => frame.format());
@@ -164,7 +170,7 @@ interface IScope {
   chain: Cdp.Debugger.Scope[];
   thisObject: Cdp.Runtime.RemoteObject;
   returnValue?: Cdp.Runtime.RemoteObject;
-  variables: (Dap.Variable | undefined)[];
+  variables: (IVariableContainer | undefined)[];
   callFrameId: string;
 }
 
@@ -209,7 +215,13 @@ export class StackFrame {
   }
 
   static asyncSeparator(thread: Thread, name: string): StackFrame {
-    const result = new StackFrame(thread, name, { lineNumber: 1, columnNumber: 1, url: '' }, true);
+    // todo@connor4312: this should probably be a different type of object
+    const result = new StackFrame(
+      thread,
+      name,
+      { lineNumber: 1, columnNumber: 1, scriptId: '' },
+      true,
+    );
     result._isAsyncSeparator = true;
     return result;
   }
@@ -235,8 +247,7 @@ export class StackFrame {
       other &&
       other._rawLocation.columnNumber === this._rawLocation.columnNumber &&
       other._rawLocation.lineNumber === this._rawLocation.lineNumber &&
-      other._rawLocation.scriptId === this._rawLocation.scriptId &&
-      other._rawLocation.url === this._rawLocation.url
+      other._rawLocation.scriptId === this._rawLocation.scriptId
     );
   }
 
@@ -304,9 +315,7 @@ export class StackFrame {
         name,
         presentationHint,
         expensive: scope.type === 'global',
-        namedVariables: variable.namedVariables,
-        indexedVariables: variable.indexedVariables,
-        variablesReference: variable.variablesReference,
+        variablesReference: variable.id,
       };
       if (scope.startLocation) {
         const startRawLocation = this._thread.rawLocation(scope.startLocation);
@@ -369,18 +378,28 @@ export class StackFrame {
     } as Dap.StackFrame;
   }
 
+  async formatAsNative(): Promise<string> {
+    if (this._isAsyncSeparator) return `    --- ${this._name} ---`;
+    const uiLocation = await this.uiLocation();
+    const url =
+      (await uiLocation?.source.existingAbsolutePath()) ||
+      uiLocation?.source.url ||
+      (await uiLocation?.source.prettyName());
+    const { lineNumber, columnNumber } = uiLocation || this._rawLocation;
+    return `    at ${this._name} (${url}:${lineNumber}:${columnNumber})`;
+  }
+
   async format(): Promise<string> {
     if (this._isAsyncSeparator) return `◀ ${this._name} ▶`;
     const uiLocation = await this.uiLocation();
-    const prettyName =
-      (uiLocation && (await uiLocation.source.prettyName())) || this._rawLocation.url;
+    const prettyName = (await uiLocation?.source.prettyName()) || '<unknown>';
     const anyLocation = uiLocation || this._rawLocation;
     let text = `${this._name} @ ${prettyName}:${anyLocation.lineNumber}`;
     if (anyLocation.columnNumber > 1) text += `:${anyLocation.columnNumber}`;
     return text;
   }
 
-  async _scopeVariable(scopeNumber: number, scope: IScope): Promise<Dap.Variable> {
+  private async _scopeVariable(scopeNumber: number, scope: IScope): Promise<IVariableContainer> {
     const existing = scope.variables[scopeNumber];
     if (existing) {
       return existing;
@@ -403,7 +422,7 @@ export class StackFrame {
     }
 
     // eslint-disable-next-line
-    const variable = await this._thread
+    const variable = this._thread
       .pausedVariables()!
       .createScope(scope.chain[scopeNumber].object, scopeRef, extraProperties);
     return (scope.variables[scopeNumber] = variable);
@@ -420,9 +439,8 @@ export class StackFrame {
     for (let scopeNumber = 0; scopeNumber < this._scope.chain.length; scopeNumber++) {
       promises.push(
         this._scopeVariable(scopeNumber, this._scope).then(async scopeVariable => {
-          if (!scopeVariable.variablesReference) return [];
           const variables = await variableStore.getVariables({
-            variablesReference: scopeVariable.variablesReference,
+            variablesReference: scopeVariable.id,
           });
           return variables.map(variable => ({ label: variable.name, type: 'property' }));
         }),

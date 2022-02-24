@@ -214,13 +214,20 @@ export function stripTrailingSlash(aPath: string): string {
   return aPath.replace(/\/$/, '').replace(/\\$/, '');
 }
 
+const vscodeWebviewResourceSchemeRe =
+  /^https:\/\/([a-z0-9\-]+)\+\.vscode-resource\.vscode-webview\.net\/(.+)/i;
+
 /**
  * If urlOrPath is a file URL, removes the 'file:///', adjusting for platform differences
  */
 export function fileUrlToAbsolutePath(urlOrPath: FileUrl): string;
 export function fileUrlToAbsolutePath(urlOrPath: string): string | undefined;
 export function fileUrlToAbsolutePath(urlOrPath: string): string | undefined {
-  if (isVSCodeWebviewUrl(urlOrPath)) {
+  const webviewResource = vscodeWebviewResourceSchemeRe.exec(urlOrPath);
+  if (webviewResource) {
+    urlOrPath = `${webviewResource[1]}:///${webviewResource[2]}`;
+  } else if (urlOrPath.startsWith('vscode-webview-resource://')) {
+    // todo@connor4312: is this still in use?
     const url = new URL(urlOrPath);
     // Strip off vscode webview url part: vscode-webview-resource://<36-char-guid>/file...
     urlOrPath = url.pathname
@@ -232,9 +239,7 @@ export function fileUrlToAbsolutePath(urlOrPath: string): string | undefined {
           return `${scheme}://`; // Url has own authority.
         }
       });
-  }
-
-  if (!isFileUrl(urlOrPath)) {
+  } else if (!isFileUrl(urlOrPath)) {
     return undefined;
   }
 
@@ -286,8 +291,13 @@ export function isDataUri(uri: string): boolean {
 }
 
 const urlToRegexChar = (char: string, arr: Set<string>, escapeRegex: boolean) => {
-  if (!escapeRegex) {
+  if (!escapeRegex || char === ':') {
     arr.add(char);
+    return;
+  }
+
+  if (char === '/') {
+    arr.add(`\\${char}`);
     return;
   }
 
@@ -297,7 +307,7 @@ const urlToRegexChar = (char: string, arr: Set<string>, escapeRegex: boolean) =>
     arr.add(char);
   }
 
-  const encoded = encodeURI(char);
+  const encoded = encodeURIComponent(char);
   if (char !== '\\' && encoded !== char) {
     arr.add(encoded); // will never have any regex special chars
   }
@@ -366,7 +376,7 @@ export function urlToRegex(
   //  - For case insensitive systems, we generate a regex like [fF][oO][oO]/(?:💩|%F0%9F%92%A9).[jJ][sS]
   //  - If we didn't de-encode it, the percent would be case-insensitized as
   //    well and we would not include the original character in the regex
-  for (const str of [decodeURI(unescapedPath), fileUrlToAbsolutePath(unescapedPath)]) {
+  for (const str of [decodeURIComponent(unescapedPath), fileUrlToAbsolutePath(unescapedPath)]) {
     if (!str) {
       continue;
     }
@@ -399,13 +409,6 @@ export function isFileUrl(candidate: string): candidate is FileUrl {
   return candidate.startsWith('file:///');
 }
 
-/**
- * Returns whether the string is a file URL
- */
-export function isVSCodeWebviewUrl(candidate: string): candidate is FileUrl {
-  return candidate.startsWith('vscode-webview-resource://');
-}
-
 export function maybeAbsolutePathToFileUrl(
   rootPath: string | undefined,
   sourceUrl: string,
@@ -429,11 +432,15 @@ export function urlPathToPlatformPath(p: string): string {
 
 export function platformPathToUrlPath(p: string): string {
   p = platformPathToPreferredCase(p);
-  if (process.platform === 'win32') {
-    p = p.replace(/\\/g, '/');
-  }
 
-  return encodeURI(p);
+  if (process.platform === 'win32') {
+    return p
+      .split(/[\\//]/g)
+      .map((p, i) => (i > 0 ? encodeURIComponent(p) : p))
+      .join('/');
+  } else {
+    return p.split('/').map(encodeURIComponent).join('/');
+  }
 }
 
 export function platformPathToPreferredCase(p: string): string;

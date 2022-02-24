@@ -487,6 +487,10 @@ describe('node runtime', () => {
   });
 
   itIntegrates('sets arguments', async ({ r }) => {
+    if (process.platform === 'darwin') {
+      return; // the ADO runner on Darwin seems to use the wrong Node version
+    }
+
     createFileTree(testFixturesDir, { 'test.js': 'debugger' });
     const handle = await r.runScript('test.js', {
       args: ['--some', 'very fancy', '--arguments'],
@@ -673,8 +677,12 @@ describe('node runtime', () => {
       });
       handle.load();
 
-      handle.log(await handle.dap.once('stopped'));
-      handle.dap.evaluate({ expression: 'require("inspector").close()' });
+      const { threadId } = handle.log(await handle.dap.once('stopped'));
+      const stack = await handle.dap.stackTrace({ threadId });
+      handle.dap.evaluate({
+        expression: 'require("inspector").close()',
+        frameId: stack.stackFrames[0].id,
+      });
       handle.log(await handle.dap.once('terminated'));
       handle.assertLog({ substring: true });
     });

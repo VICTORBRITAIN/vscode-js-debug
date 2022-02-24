@@ -166,6 +166,8 @@ export class BrowserSourcePathResolver extends SourcePathResolverBase<IOptions> 
       // fall through
     }
 
+    url = this.normalizeSourceMapUrl(url);
+
     const { pathMapping } = this.options;
     const fullSourceEntry = getFullSourceEntry(map.sourceRoot, url);
     let mappedFullSourceEntry = this.sourceMapOverrides.apply(fullSourceEntry);

@@ -19,7 +19,7 @@ function hasRef(definition: JSONSchema4): definition is JSONSchema4 & { $ref: JS
 
 async function generate() {
   const { body: standard } = await got<JSONSchema4>(
-    'https://raw.githubusercontent.com/microsoft/debug-adapter-protocol/gh-pages/debugAdapterProtocol.json',
+    'https://raw.githubusercontent.com/microsoft/debug-adapter-protocol/next/debugAdapterProtocol.json',
     { responseType: 'json' },
   );
   const result: string[] = [];
@@ -78,7 +78,7 @@ async function generate() {
 
     if (prop.type === 'array') {
       const subtype = prop.items ? generateType(prop.items as JSONSchema4) : 'any';
-      return `${subtype}[]`;
+      return `(${subtype})[]`;
     }
 
     if (prop.oneOf) {
@@ -94,9 +94,9 @@ async function generate() {
 
   function appendProps(
     props: { [k: string]: JSONSchema4 },
-    required?: Iterable<string> | false | null,
+    required?: Iterable<string> | true | false | null,
   ) {
-    const requiredSet = new Set(required || []);
+    const requiredSet = required === true ? new Set(Object.keys(props)) : new Set(required || []);
     const propSeparator = createSeparator();
     for (const name in props) {
       const prop = props[name];

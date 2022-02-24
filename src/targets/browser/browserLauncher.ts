@@ -2,16 +2,17 @@
  * Copyright (C) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------*/
 
+import { IBrowserFinder, isQuality, Quality } from '@vscode/js-debug-browsers';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import { CancellationToken } from 'vscode';
-import { IBrowserFinder, isQuality, Quality } from 'vscode-js-debug-browsers';
 import CdpConnection from '../../cdp/connection';
 import { timeoutPromise } from '../../common/cancellation';
 import { DisposableList } from '../../common/disposable';
 import { EnvironmentVars } from '../../common/environmentVars';
 import { EventEmitter } from '../../common/events';
+import { existsInjected } from '../../common/fsUtils';
 import { ILogger } from '../../common/logging';
 import { ISourcePathResolver } from '../../common/sourcePathResolver';
 import {
@@ -23,7 +24,7 @@ import { AnyChromiumLaunchConfiguration, AnyLaunchConfiguration } from '../../co
 import Dap from '../../dap/api';
 import { browserAttachFailed, browserLaunchFailed, targetPageNotFound } from '../../dap/errors';
 import { ProtocolError } from '../../dap/protocolError';
-import { IInitializeParams, StoragePath } from '../../ioc-extras';
+import { FS, FsPromises, IInitializeParams, StoragePath } from '../../ioc-extras';
 import { ITelemetryReporter } from '../../telemetry/telemetryReporter';
 import { ILaunchContext, ILauncher, ILaunchResult, IStopMetadata, ITarget } from '../targets';
 import { BrowserTargetManager } from './browserTargetManager';
@@ -53,6 +54,7 @@ export abstract class BrowserLauncher<T extends AnyChromiumLaunchConfiguration>
     @inject(ILogger) protected readonly logger: ILogger,
     @inject(ISourcePathResolver) private readonly pathResolver: ISourcePathResolver,
     @inject(IInitializeParams) private readonly initializeParams: Dap.InitializeParams,
+    @inject(FS) protected readonly fs: FsPromises,
   ) {}
 
   /**
@@ -210,10 +212,24 @@ export abstract class BrowserLauncher<T extends AnyChromiumLaunchConfiguration>
       return;
     }
 
-    const url =
-      'file' in params && params.file
-        ? absolutePathToFileUrl(path.resolve(params.webRoot || params.rootPath || '', params.file))
-        : params.url;
+    let url: string | null;
+    if (params.file) {
+      // Allow adding query strings or fragments onto `file` paths -- remove
+      // them if there's no file on disk that match the full `file`.
+      const fullFile = path.resolve(params.webRoot || params.rootPath || '', params.file);
+      const di = Math.min(
+        fullFile.includes('#') ? fullFile.indexOf('#') : Infinity,
+        fullFile.includes('?') ? fullFile.indexOf('?') : Infinity,
+      );
+
+      if (isFinite(di) && !(await existsInjected(this.fs, fullFile))) {
+        url = absolutePathToFileUrl(fullFile.slice(0, di)) + fullFile.slice(di);
+      } else {
+        url = absolutePathToFileUrl(fullFile);
+      }
+    } else {
+      url = params.url;
+    }
 
     if (url) {
       await mainTarget.cdp().Page.navigate({ url });
@@ -265,21 +281,11 @@ export abstract class BrowserLauncher<T extends AnyChromiumLaunchConfiguration>
    * @inheritdoc
    */
   public async restart(): Promise<void> {
-    const mainTarget = this.targetList().find(
-      t => t.type() === BrowserTargetType.Page,
-    ) as BrowserTarget;
-    if (!mainTarget) {
-      return;
+    for (const target of this.targetList()) {
+      if (target.type() === BrowserTargetType.Page) {
+        target.restart();
+      }
     }
-
-    const cdp = mainTarget.cdp();
-    if (this._launchParams?.url) {
-      await cdp.Page.navigate({ url: this._launchParams.url });
-    } else {
-      await cdp.Page.reload({});
-    }
-
-    cdp.Page.bringToFront({});
   }
 
   protected async findBrowserByExe(

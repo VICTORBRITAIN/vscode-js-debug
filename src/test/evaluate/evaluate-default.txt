@@ -14,20 +14,20 @@ result: 3
 
 <error>: Uncaught ReferenceError: baz is not defined
 
-> result: Uint8Array(3) [1, 2, 3]
+> result: Uint8Array(3) [1, 2, 3, buffer: ArrayBuffer(3), byteLength: 3, byteOffset: 0, length: 3, Symbo…]
     0: 1
     1: 2
     2: 3
-    > [[Prototype]]: Object
-    > buffer (get): ƒ buffer()
-    > byteLength (get): ƒ byteLength()
-    > byteOffset (get): ƒ byteOffset()
-    > length (get): ƒ length()
-    > Symbol(Symbol.toStringTag) (get): ƒ [Symbol.toStringTag]()
+    > buffer: (...)
+    > byteLength: (...)
+    > byteOffset: (...)
+    > length: (...)
+    Symbol(Symbol.toStringTag): undefined
     > [[Prototype]]: TypedArray
+    > [[Prototype]]: Object
 
-> result: ArrayBuffer(3)
-    > byteLength (get): ƒ byteLength()
+> result: ArrayBuffer(3) {byteLength: 3}
+    byteLength: 3
     [[ArrayBufferByteLength]]: 3
     > [[Int8Array]]: Int8Array(3)
     > [[Prototype]]: ArrayBuffer
@@ -39,76 +39,62 @@ result: 3
     > [[Target]]: Object
 
 > result: {}
-    > foo (set): ƒ foo(x) {}
-        > arguments (get): ƒ ()
-        > arguments (set): ƒ ()
-        > caller (get): ƒ ()
-        > caller (set): ƒ ()
+    > foo: write-only
+        > arguments: (...)
+        > caller: (...)
         length: 1
         name: 'set foo'
         [[FunctionLocation]]: @ <eval>/VM<xx>:1
         > [[Prototype]]: ƒ ()
         > [[Scopes]]: Scopes[1]
     > [[Prototype]]: Object
-        > foo (set): ƒ foo(x) {}
+        > foo: write-only
         > [[Prototype]]: Object
-        > Object
-        > arguments (get): ƒ ()
-        > arguments (set): ƒ ()
-        > caller (get): ƒ ()
-        > caller (set): ƒ ()
-        length: 1
-        > [[Prototype]]: ƒ ()
-        > [[Scopes]]: Scopes[0]
 
 > result: {}
-    > foo (get): ƒ foo() { return 42 }
+    > foo: (...)
         42
     > [[Prototype]]: Object
-        > foo (get): ƒ foo() { return 42 }
+        > foo: (...)
         > [[Prototype]]: Object
-        > Object
-        > arguments (get): ƒ ()
-        > arguments (set): ƒ ()
-        > caller (get): ƒ ()
-        > caller (set): ƒ ()
-        length: 1
-        > [[Prototype]]: ƒ ()
-        > [[Scopes]]: Scopes[0]
 
 > result: {}
-    > foo (get): ƒ foo() { throw 'wat'; }
-        > arguments (get): ƒ ()
-        > arguments (set): ƒ ()
-        > caller (get): ƒ ()
-        > caller (set): ƒ ()
+    > foo: (...)
+        > arguments: (...)
+        > caller: (...)
         length: 0
         name: 'get foo'
         [[FunctionLocation]]: @ <eval>/VM<xx>:1
         > [[Prototype]]: ƒ ()
         > [[Scopes]]: Scopes[1]
     > [[Prototype]]: Object
-        > foo (get): ƒ foo() { throw 'wat'; }
+        > foo: (...)
         > [[Prototype]]: Object
-        > Object
-        > arguments (get): ƒ ()
-        > arguments (set): ƒ ()
-        > caller (get): ƒ ()
-        > caller (set): ƒ ()
-        length: 1
-        > [[Prototype]]: ƒ ()
-        > [[Scopes]]: Scopes[0]
 
 Evaluating#1: setTimeout(() => { throw new Error('bar')}, 0)
-stderr> Uncaught Error: bar
-stderr> > Uncaught Error: bar
+stderr> Uncaught Error Error: bar
+    at <anonymous> (http://localhost:8001/eval1.js:1:26)
+    --- setTimeout ---
+    at <anonymous> (http://localhost:8001/eval1.js:1:1)
+stderr>
+> Uncaught Error Error: bar
+    at <anonymous> (http://localhost:8001/eval1.js:1:26)
+    --- setTimeout ---
+    at <anonymous> (http://localhost:8001/eval1.js:1:1)
 stderr>
 <anonymous> @ localhost꞉8001/eval1.js:1:26
 ◀ setTimeout ▶
 <anonymous> @ localhost꞉8001/eval1.js:1
 
-stderr> Uncaught Error: baz
-stderr> > Uncaught Error: baz
+stderr> Uncaught Error Error: baz
+    at <anonymous> (<eval>/VM<xx>:1:26)
+    --- setTimeout ---
+    at <anonymous> (<eval>/VM<xx>:1:1)
+stderr>
+> Uncaught Error Error: baz
+    at <anonymous> (<eval>/VM<xx>:1:26)
+    --- setTimeout ---
+    at <anonymous> (<eval>/VM<xx>:1:1)
 stderr>
 <anonymous> @ <eval>/VM<xx>:1:26
 ◀ setTimeout ▶
@@ -118,8 +104,17 @@ stderr>
 
 <error>: Uncaught Object
 
-stderr> Uncaught Error: error2
-stderr> > Uncaught Error: error2
+stderr> Uncaught Error Error: error2
+    at throwError (${workspaceFolder}/web/browserify/module1.ts:6:9)
+    at <anonymous> (<eval>/VM<xx>:1:27)
+    --- setTimeout ---
+    at <anonymous> (<eval>/VM<xx>:1:1)
+stderr>
+> Uncaught Error Error: error2
+    at throwError (${workspaceFolder}/web/browserify/module1.ts:6:9)
+    at <anonymous> (<eval>/VM<xx>:1:27)
+    --- setTimeout ---
+    at <anonymous> (<eval>/VM<xx>:1:1)
 stderr>
 throwError @ ${workspaceFolder}/web/browserify/module1.ts:6:9
 <anonymous> @ <eval>/VM<xx>:1:27

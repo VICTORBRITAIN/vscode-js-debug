@@ -2,8 +2,8 @@
  * Copyright (C) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------*/
 
+import { IBrowserFinder } from '@vscode/js-debug-browsers';
 import { inject, injectable, tagged } from 'inversify';
-import { IBrowserFinder } from 'vscode-js-debug-browsers';
 import { DebugType } from '../../common/contributionUtils';
 import { canAccess } from '../../common/fsUtils';
 import { ILogger } from '../../common/logging';
@@ -23,12 +23,11 @@ export class ChromeLauncher extends BrowserLauncher<IChromeLaunchConfiguration> 
     @inject(BrowserFinder)
     @tagged('browser', 'chrome')
     protected readonly browserFinder: IBrowserFinder,
-    @inject(FS)
-    private readonly fs: FsPromises,
+    @inject(FS) fs: FsPromises,
     @inject(ISourcePathResolver) pathResolver: ISourcePathResolver,
     @inject(IInitializeParams) initializeParams: Dap.InitializeParams,
   ) {
-    super(storagePath, logger, pathResolver, initializeParams);
+    super(storagePath, logger, pathResolver, initializeParams, fs);
   }
 
   /**

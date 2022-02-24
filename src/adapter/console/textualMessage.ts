@@ -5,9 +5,10 @@
 import * as nls from 'vscode-nls';
 import Cdp from '../../cdp/api';
 import { once } from '../../common/objUtils';
+import { StackTraceParser } from '../../common/stackTraceParser';
 import Dap from '../../dap/api';
 import { formatMessage } from '../messageFormat';
-import { formatAsTable, messageFormatters, previewAsObject } from '../objectPreview';
+import { messageFormatters, previewAsObject } from '../objectPreview';
 import { AnyObject } from '../objectPreview/betterTypes';
 import { IUiLocation } from '../sources';
 import { StackTrace } from '../stackTrace';
@@ -102,18 +103,18 @@ export abstract class TextualMessage<T extends { stackTrace?: Cdp.Runtime.StackT
     args: ReadonlyArray<Cdp.Runtime.RemoteObject>,
     includeStackInVariables: boolean,
   ) {
-    if (args.some(a => a.subtype === 'error')) {
+    if (args.some(a => a.subtype === 'error') || StackTraceParser.isStackLike(output)) {
       await this.getUiLocation(thread); // ensure the source is loaded before decoding stack
       output = await thread.replacePathsInStackTrace(output);
     }
 
-    const variablesReference = await thread.replVariables.createVariableForOutput(
+    const outputVar = thread.replVariables.createVariableForOutput(
       output,
       args,
       includeStackInVariables ? this.stackTrace(thread) : undefined,
     );
 
-    return { output: '', variablesReference };
+    return { output: '', variablesReference: outputVar.id };
   }
 }
 
@@ -205,10 +206,12 @@ export class TableMessage extends DefaultMessage {
       return {
         category: 'stdout',
         output: '',
-        variablesReference: await thread.replVariables.createVariableForOutput(
-          formatAsTable(this.event.args[0].preview) + '\n',
+        variablesReference: thread.replVariables.createVariableForOutput(
+          '',
           this.event.args,
-        ),
+          undefined,
+          this.event.type,
+        ).id,
         ...(await this.getUiLocation(thread)),
       };
     }

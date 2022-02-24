@@ -33,7 +33,7 @@ const strings = {
   'extensionHost.launch.debugWebWorkerHost':
     'Configures whether we should try to attach to the web worker extension host.',
   'extensionHost.launch.debugWebviews':
-    'Configures whether we should try to attach to webviews in the launched VS Code instance. **Note:** at the moment this requires the setting `"webview.experimental.useIframes": true` to work properly, and will only work in desktop VS Code.',
+    'Configures whether we should try to attach to webviews in the launched VS Code instance. This will only work in desktop VS Code.',
   'extensionHost.launch.stopOnEntry.description':
     'Automatically stop the extension host after launch.',
   'extensionHost.snippet.launch.description': 'Launch a VS Code extension in debug mode',
@@ -283,8 +283,6 @@ const strings = {
     'Options used when debugging open links clicked from inside the JavaScript Debug Terminal. Can be set to "off" to disable this behavior, or "always" to enable debugging in all terminals.',
   'configuration.pickAndAttachOptions':
     'Default options used when debugging a process through the `Debug: Attach to Node.js Process` command',
-  'configuration.autoExpandGetters':
-    'Configures whether property getters will be expanded automatically. If this is false, the getter will appear as `get propertyName` and will only be evaluated when you click on it.',
   'configuration.autoAttachMode':
     'Configures which processes to automatically attach and debug when `#debug.node.autoAttach#` is on. A Node process launched with the `--inspect` flag will always be attached to, regardless of this setting.',
   'configuration.autoAttachSmartPatterns':
@@ -313,6 +311,13 @@ A common case to disable certificate verification can be done by passing \`{ "ht
   'requestCDPProxy.label': 'Request CDP Proxy for Debug Session',
   'openEdgeDevTools.label': 'Open Browser Devtools',
   'workspaceTrust.description': 'Trust is required to debug code in this workspace.',
+
+  'commands.callersAdd.label': 'Exclude Caller',
+  'commands.callersAdd.paletteLabel': 'Exclude caller from pausing in the current location',
+  'commands.callersRemove.label': 'Remove excluded caller',
+  'commands.callersRemoveAll.label': 'Remove all excluded callers',
+  'commands.callersGoToCaller.label': 'Go to caller location',
+  'commands.callersGoToTarget.label': 'Go to target location',
 };
 
 export default strings;

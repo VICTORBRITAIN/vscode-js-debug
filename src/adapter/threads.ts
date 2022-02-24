@@ -12,6 +12,7 @@ import { Base1Position } from '../common/positions';
 import { delay, getDeferred, IDeferred } from '../common/promiseUtil';
 import { IRenameProvider } from '../common/sourceMaps/renameProvider';
 import * as sourceUtils from '../common/sourceUtils';
+import { StackTraceParser } from '../common/stackTraceParser';
 import * as urlUtils from '../common/urlUtils';
 import { fileUrlToAbsolutePath } from '../common/urlUtils';
 import { AnyLaunchConfiguration, IChromiumBaseConfiguration, OutputSource } from '../configuration';
@@ -28,6 +29,7 @@ import { CustomBreakpointId, customBreakpoints } from './customBreakpoints';
 import { IEvaluator } from './evaluator';
 import { IExceptionPauseService } from './exceptionPauseService';
 import * as objectPreview from './objectPreview';
+import { PreviewContextType } from './objectPreview/contexts';
 import { SmartStepper } from './smartStepping';
 import {
   base1To0,
@@ -44,7 +46,7 @@ import {
   serializeForClipboard,
   serializeForClipboardTmpl,
 } from './templates/serializeForClipboard';
-import { IVariableStoreDelegate, VariableStore } from './variables';
+import { IVariableStoreLocationProvider, VariableStore } from './variableStore';
 const localize = nls.loadMessageBundle();
 
 export type PausedReason =
@@ -108,10 +110,9 @@ export type ScriptWithSourceMapHandler = (
 export type SourceMapDisabler = (hitBreakpoints: string[]) => ISourceWithMap[];
 
 export type RawLocation = {
-  url: string;
   lineNumber: number; // 1-based
   columnNumber: number; // 1-based
-  scriptId?: Cdp.Runtime.ScriptId;
+  scriptId: Cdp.Runtime.ScriptId;
 };
 
 class DeferredContainer<T> {
@@ -132,7 +133,13 @@ class DeferredContainer<T> {
   }
 }
 
-export class Thread implements IVariableStoreDelegate {
+const excludedCallerSearchDepth = 50;
+
+const sourcesEqual = (a: Dap.Source, b: Dap.Source) =>
+  a.sourceReference === b.sourceReference &&
+  urlUtils.comparePathsWithoutCasing(a.path || '', b.path || '');
+
+export class Thread implements IVariableStoreLocationProvider {
   private static _lastThreadId = 0;
   public readonly id: number;
   private _cdp: Cdp.Api;
@@ -151,11 +158,14 @@ export class Thread implements IVariableStoreDelegate {
   private _scriptSources = new Map<string, Map<string, Source>>();
   private _sourceMapLoads = new Map<string, Promise<IUiLocation[]>>();
   private _expectedPauseReason?: ExpectedPauseReason;
+  private _excludedCallers: readonly Dap.ExcludedCaller[] = [];
   private readonly _sourceScripts = new WeakMap<Source, Set<Script>>();
   private readonly _pausedDetailsEvent = new WeakMap<IPausedDetails, Cdp.Debugger.PausedEvent>();
   private readonly _onPausedEmitter = new EventEmitter<IPausedDetails>();
   private readonly _dap: DeferredContainer<Dap.Api>;
   private disposed = false;
+
+  public debuggerReady = getDeferred<void>();
 
   /**
    * Details set when a "step in" is issued. Used allow async stepping in
@@ -185,15 +195,12 @@ export class Thread implements IVariableStoreDelegate {
     this._sourceContainer = sourceContainer;
     this._cdp = cdp;
     this.id = Thread._lastThreadId++;
-    this.replVariables = new VariableStore(
-      this._cdp,
-      this,
-      renameProvider,
-      launchConfig.__autoExpandGetters,
-      launchConfig.customDescriptionGenerator,
-      launchConfig.customPropertiesGenerator,
-    );
+    this.replVariables = new VariableStore(renameProvider, this._cdp, dap, launchConfig, this);
     this._initialize();
+  }
+
+  public setExcludedCallers(callers: readonly Dap.ExcludedCaller[]) {
+    this._excludedCallers = callers;
   }
 
   cdp(): Cdp.Api {
@@ -477,10 +484,9 @@ export class Thread implements IVariableStoreDelegate {
       );
     }
 
-    const variable =
-      args.context === 'watch'
-        ? await variableStore.createVariableForWatchEval(response.result, args.expression)
-        : await variableStore.createVariable(response.result, args.context);
+    const variable = await variableStore
+      .createFloatingVariable(response.result)
+      .toDap(args.context as PreviewContextType);
 
     return {
       type: response.result.type,
@@ -507,7 +513,9 @@ export class Thread implements IVariableStoreDelegate {
         this._selectedContext && this.defaultExecutionContext() !== this._selectedContext
           ? `\x1b[33m[${this.target.executionContextName(this._selectedContext.description)}] `
           : '';
-      const resultVar = await this.replVariables.createVariable(response.result, 'repl');
+      const resultVar = await this.replVariables
+        .createFloatingVariable(response.result)
+        .toDap(PreviewContextType.Repl);
       return {
         variablesReference: resultVar.variablesReference,
         result: `${contextName}${resultVar.value}`,
@@ -614,6 +622,7 @@ export class Thread implements IVariableStoreDelegate {
     // There is a bug in Chrome that does not retain debugger id
     // across cross-process navigations. Refresh it upon clearing contexts.
     this._cdp.Debugger.enable({}).then(response => {
+      this.debuggerReady.resolve();
       if (response) {
         Thread._allThreadsByDebuggerId.set(response.debuggerId, this);
       }
@@ -700,6 +709,14 @@ export class Thread implements IVariableStoreDelegate {
 
     // We store pausedDetails in a local variable to avoid race conditions while awaiting this._smartStepper.shouldSmartStep
     const pausedDetails = (this._pausedDetails = this._createPausedDetails(event));
+    if (this._excludedCallers.length) {
+      if (await this._matchesExcludedCaller(this._pausedDetails.stackTrace)) {
+        this.logger.info(LogTag.Runtime, 'Skipping pause due to excluded caller');
+        this.resume();
+        return;
+      }
+    }
+
     const smartStepDirection = await this._smartStepper.getSmartStepDirection(
       pausedDetails,
       this._expectedPauseReason,
@@ -726,6 +743,63 @@ export class Thread implements IVariableStoreDelegate {
     this._pausedVariables = this.replVariables.createDetached();
 
     await this._onThreadPaused(pausedDetails);
+  }
+
+  /**
+   * Gets whether the stack trace should be skipped as a result of a caller
+   * being excluded.
+   *
+   * This function is as lazy as possible. For example, we only unwrap the
+   * first frame's source if the line and column match the target, and
+   * load the stack sources incrementally in the same way.
+   */
+  private async _matchesExcludedCaller(trace: StackTrace): Promise<boolean> {
+    if (!this._excludedCallers.length) {
+      return false;
+    }
+
+    const first = await trace.frames[0]?.uiLocation();
+    if (!first) {
+      return false;
+    }
+
+    let firstSource: Dap.Source | undefined;
+    let stackLocations: (IUiLocation | undefined)[] | undefined;
+    const stackAsDap: Dap.Source[] = []; // sparse array
+
+    for (const { caller, target } of this._excludedCallers) {
+      if (target.line !== first.lineNumber || target.column !== first.columnNumber) {
+        continue;
+      }
+
+      firstSource ??= await first.source.toDapShallow();
+      if (!sourcesEqual(firstSource, target.source)) {
+        continue;
+      }
+
+      if (!stackLocations) {
+        // for some reason, if this is assigned directly to stackLocations,
+        // then TS will think it can still be undefined below
+        const x = await trace
+          .loadFrames(excludedCallerSearchDepth)
+          .then(frames => Promise.all(frames.slice(1).map(f => f.uiLocation())));
+        stackLocations = x;
+      }
+
+      for (let i = 0; i < stackLocations.length; i++) {
+        const r = stackLocations[i];
+        if (!r || r.lineNumber !== caller.line || r.columnNumber !== caller.column) {
+          continue;
+        }
+
+        const source = (stackAsDap[i] ??= await r.source.toDapShallow());
+        if (sourcesEqual(source, caller.source)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -776,14 +850,12 @@ export class Thread implements IVariableStoreDelegate {
     if ('location' in location) {
       const loc = location as Cdp.Debugger.CallFrame;
       return {
-        url: loc.url,
         lineNumber: Math.max(0, loc.location.lineNumber) + 1,
         columnNumber: Math.max(0, loc.location.columnNumber || 0) + 1,
         scriptId: loc.location.scriptId,
       };
     }
     return {
-      url: (location as Cdp.Runtime.CallFrame).url || '',
       lineNumber: Math.max(0, location.lineNumber) + 1,
       columnNumber: Math.max(0, location.columnNumber || 0) + 1,
       scriptId: location.scriptId,
@@ -808,7 +880,7 @@ export class Thread implements IVariableStoreDelegate {
       return undefined;
     }
 
-    const script = this._sourceContainer.scriptsById.get(rawLocation.scriptId);
+    const script = this._sourceContainer.getScriptById(rawLocation.scriptId);
     if (!script) {
       return this.rawLocationToUiLocationWithWaiting(rawLocation);
     }
@@ -852,7 +924,7 @@ export class Thread implements IVariableStoreDelegate {
    * possible script IDs; this waits if we see one that we don't.
    */
   private getScriptByIdOrWait(scriptId: string, maxTime = 500) {
-    const script = this._sourceContainer.scriptsById.get(scriptId);
+    const script = this._sourceContainer.getScriptById(scriptId);
     return script || this.waitForScriptId(scriptId, maxTime);
   }
 
@@ -1107,7 +1179,7 @@ export class Thread implements IVariableStoreDelegate {
       event.url = urlUtils.absolutePathToFileUrl(event.url);
     }
 
-    if (this._sourceContainer.scriptsById.has(event.scriptId)) {
+    if (this._sourceContainer.getScriptById(event.scriptId)) {
       return;
     }
 
@@ -1138,7 +1210,7 @@ export class Thread implements IVariableStoreDelegate {
 
       // see https://github.com/microsoft/vscode/issues/103027
       const runtimeScriptOffset = event.url.endsWith('#vscode-extension')
-        ? { lineOffset: 1, columnOffset: 0 }
+        ? { lineOffset: 2, columnOffset: 0 }
         : undefined;
 
       let resolvedSourceMapUrl: string | undefined;
@@ -1206,7 +1278,7 @@ export class Thread implements IVariableStoreDelegate {
     const timeout =
       perScriptTimeout + this._sourceContainer.sourceMapTimeouts().sourceMapCumulativePause;
 
-    const script = this._sourceContainer.scriptsById.get(scriptId);
+    const script = this._sourceContainer.getScriptById(scriptId);
     if (!script) {
       this._pausedForSourceMapScriptId = undefined;
       return false;
@@ -1472,42 +1544,36 @@ export class Thread implements IVariableStoreDelegate {
    * Replaces locations in the stack trace with their source locations.
    */
   public async replacePathsInStackTrace(trace: string): Promise<string> {
-    // Either match lines like
-    // "    at fulfilled (/Users/roblou/code/testapp-node2/out/app.js:5:58)"
-    // or
-    // "    at /Users/roblou/code/testapp-node2/out/app.js:60:23"
-    // and replace the path in them
-    const re1 = /^(\W*at .*\()(.*):(\d+):(\d+)(\))$/;
-    const re2 = /^(\W*at )(.*):(\d+):(\d+)$/;
+    const todo: (string | Promise<string>)[] = [];
+    for (const chunk of new StackTraceParser(trace)) {
+      if (typeof chunk === 'string') {
+        todo.push(chunk);
+        continue;
+      }
 
-    const lines = await Promise.all(
-      trace.split('\n').map(line => {
-        const match = re1.exec(line) || re2.exec(line);
-        if (!match) {
-          return line;
-        }
+      const compiledSource =
+        this._sourceContainer.getSourceByOriginalUrl(urlUtils.absolutePathToFileUrl(chunk.path)) ||
+        this._sourceContainer.getSourceByOriginalUrl(chunk.path);
+      if (!compiledSource) {
+        todo.push(chunk.toString());
+        continue;
+      }
 
-        const [, prefix, url, lineNo, columnNo, suffix = ''] = match;
-        const compiledSource =
-          this._sourceContainer.getSourceByOriginalUrl(urlUtils.absolutePathToFileUrl(url)) ||
-          this._sourceContainer.getSourceByOriginalUrl(url);
-        if (!compiledSource) {
-          return line;
-        }
-
-        return this._sourceContainer
+      todo.push(
+        this._sourceContainer
           .preferredUiLocation({
-            columnNumber: Number(columnNo),
-            lineNumber: Number(lineNo),
+            columnNumber: chunk.position.base1.columnNumber,
+            lineNumber: chunk.position.base1.lineNumber,
             source: compiledSource,
           })
           .then(
             ({ source, lineNumber, columnNumber }) =>
-              `${prefix}${source.absolutePath}:${lineNumber}:${columnNumber}${suffix}`,
-          );
-      }),
-    );
+              `${source.absolutePath}:${lineNumber}:${columnNumber}`,
+          ),
+      );
+    }
 
-    return lines.join('\n');
+    const mapped = await Promise.all(todo);
+    return mapped.join('');
   }
 }

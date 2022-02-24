@@ -2,7 +2,7 @@
  * Copyright (C) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------*/
 
-import * as fs from 'fs';
+import { promises as fs } from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -12,8 +12,8 @@ import { writeToConsole } from '../../common/console';
 import { DebugType } from '../../common/contributionUtils';
 import { EnvironmentVars } from '../../common/environmentVars';
 import { findOpenPort } from '../../common/findOpenPort';
-import { IFsUtils, LocalFsUtils } from '../../common/fsUtils';
-import { forceForwardSlashes, isSubdirectoryOf } from '../../common/pathUtils';
+import { existsInjected, IFsUtils, LocalFsUtils } from '../../common/fsUtils';
+import { forceForwardSlashes, isSubpathOrEqualTo } from '../../common/pathUtils';
 import { nearestDirectoryWhere } from '../../common/urlUtils';
 import {
   AnyNodeConfiguration,
@@ -57,7 +57,7 @@ export class NodeConfigurationResolver extends BaseConfigurationResolver<AnyNode
   public async resolveDebugConfigurationWithSubstitutedVariables(
     folder: vscode.WorkspaceFolder | undefined,
     rawConfig: vscode.DebugConfiguration,
-  ): Promise<vscode.DebugConfiguration> {
+  ): Promise<vscode.DebugConfiguration | undefined> {
     const config = rawConfig as AnyNodeConfiguration;
     if (
       config.type === DebugType.Node &&
@@ -65,6 +65,26 @@ export class NodeConfigurationResolver extends BaseConfigurationResolver<AnyNode
       typeof config.processId === 'string'
     ) {
       await resolveProcessId(this.fsUtils, config);
+    }
+
+    // check that the cwd is valid to avoid mysterious ENOENTs (vscode#133310)
+    if (config.cwd) {
+      const stats = await existsInjected(fs, config.cwd);
+      if (!stats) {
+        vscode.window.showErrorMessage(
+          localize('cwd.notFound', 'The configured `cwd` {0} does not exist.', config.cwd),
+          { modal: true },
+        );
+        return;
+      }
+
+      if (!stats.isDirectory()) {
+        vscode.window.showErrorMessage(
+          localize('cwd.notFound', 'The configured `cwd` {0} is not a folder.', config.cwd),
+          { modal: true },
+        );
+        return;
+      }
     }
 
     return config;
@@ -79,7 +99,7 @@ export class NodeConfigurationResolver extends BaseConfigurationResolver<AnyNode
     cancellationToken: CancellationToken,
   ): Promise<AnyNodeConfiguration | undefined> {
     if (!config.name && !config.type && !config.request) {
-      config = createLaunchConfigFromContext(folder, true, config);
+      config = await createLaunchConfigFromContext(folder, true, config);
       if (config.request === 'launch' && !config.program) {
         vscode.window.showErrorMessage(
           localize('program.not.found.message', 'Cannot find a program to debug'),
@@ -183,17 +203,25 @@ export function guessWorkingDirectory(program?: string, folder?: vscode.Workspac
   return '${workspaceFolder}';
 }
 
-function getAbsoluteProgramLocation(folder: vscode.WorkspaceFolder | undefined, program: string) {
+function getAbsoluteLocation(folder: vscode.WorkspaceFolder | undefined, relpath: string) {
   if (folder) {
-    program = resolveVariableInConfig(program, 'workspaceFolder', folder.uri.fsPath);
+    relpath = resolveVariableInConfig(relpath, 'workspaceFolder', folder.uri.fsPath);
   }
 
-  if (path.isAbsolute(program)) {
-    return program;
+  if (vscode.workspace.workspaceFolders?.length) {
+    relpath = resolveVariableInConfig(
+      relpath,
+      'workspaceRoot',
+      vscode.workspace.workspaceFolders[0].uri.fsPath,
+    );
+  }
+
+  if (path.isAbsolute(relpath)) {
+    return relpath;
   }
 
   if (folder) {
-    return path.join(folder.uri.fsPath, program);
+    return path.join(folder.uri.fsPath, relpath);
   }
 
   return undefined;
@@ -201,36 +229,48 @@ function getAbsoluteProgramLocation(folder: vscode.WorkspaceFolder | undefined, 
 
 /**
  * Set the outFiles to the nearest package.json-containing folder relative
- * to the program, if we can find one within the workspace folder. This speeds
- * things up significantly in monorepos.
- * @see https://github.com/microsoft/vscode-js-debug/issues/326
+ * to the program, if it's not already included in the workspace folder.
+ *
+ * This used to narrow (#326), but I think this is undesirable behavior for
+ * most users (vscode#142641), so now it only widens the `outFiles`.
  */
 async function guessOutFiles(
   fsUtils: LocalFsUtils,
   folder: vscode.WorkspaceFolder | undefined,
   config: ResolvingNodeLaunchConfiguration,
 ) {
-  if (config.outFiles || !config.program || !folder) {
+  if (config.outFiles || !folder) {
     return;
   }
 
-  const programLocation = getAbsoluteProgramLocation(folder, config.program);
-  if (!programLocation) {
+  let programLocation: string | undefined;
+  if (config.program) {
+    programLocation = getAbsoluteLocation(folder, config.program);
+    if (programLocation) {
+      programLocation = path.dirname(programLocation);
+    }
+  } else if (config.cwd) {
+    programLocation = getAbsoluteLocation(folder, config.cwd);
+  }
+
+  if (!programLocation || isSubpathOrEqualTo(folder.uri.fsPath, programLocation)) {
     return;
   }
 
   const root = await nearestDirectoryWhere(
-    path.dirname(programLocation),
+    programLocation,
     async p => !p.includes('node_modules') && (await fsUtils.exists(path.join(p, 'package.json'))),
   );
 
-  if (root && isSubdirectoryOf(folder.uri.fsPath, root)) {
+  if (root) {
     const rel = forceForwardSlashes(path.relative(folder.uri.fsPath, root));
-    config.outFiles = resolveVariableInConfig(
-      baseDefaults.outFiles,
-      'workspaceFolder',
-      `\${workspaceFolder}/${rel}`,
-    );
+    if (rel.length) {
+      config.outFiles = [
+        ...baseDefaults.outFiles,
+        `\${workspaceFolder}/${rel}/**/*.js`,
+        `!\${workspaceFolder}/${rel}/**/node_modules/**`,
+      ];
+    }
   }
 }
 
@@ -246,11 +286,11 @@ interface IPartialPackageJson {
   scripts?: { [key: string]: string };
 }
 
-export function createLaunchConfigFromContext(
+export async function createLaunchConfigFromContext(
   folder: vscode.WorkspaceFolder | undefined,
   resolve: boolean,
   existingConfig?: ResolvingNodeConfiguration,
-): ResolvingNodeConfiguration {
+): Promise<ResolvingNodeConfiguration> {
   const config: ResolvingNodeConfiguration = {
     type: DebugType.Node,
     request: 'launch',
@@ -262,7 +302,7 @@ export function createLaunchConfigFromContext(
     config.noDebug = true;
   }
 
-  const pkg = loadJSON<IPartialPackageJson>(folder, 'package.json');
+  const pkg = await loadJSON<IPartialPackageJson>(folder, 'package.json');
   let program: string | undefined;
   let useSourceMaps = false;
 
@@ -282,7 +322,7 @@ export function createLaunchConfigFromContext(
 
   if (pkg) {
     // try to find a value for 'program' by analysing package.json
-    program = guessProgramFromPackage(folder, pkg, resolve);
+    program = await guessProgramFromPackage(folder, pkg, resolve);
     if (program && resolve) {
       writeToConsole(
         localize(
@@ -337,7 +377,7 @@ export function createLaunchConfigFromContext(
     }
 
     let dir = '';
-    const tsConfig = loadJSON<ITSConfig>(folder, 'tsconfig.json');
+    const tsConfig = await loadJSON<ITSConfig>(folder, 'tsconfig.json');
     if (tsConfig?.compilerOptions?.outDir && canDetectTsBuildTask()) {
       const outDir = tsConfig.compilerOptions.outDir;
       if (!path.isAbsolute(outDir)) {
@@ -379,10 +419,13 @@ function isTranspiledLanguage(languagId: string): boolean {
   return languagId === 'typescript' || languagId === 'coffeescript';
 }
 
-function loadJSON<T>(folder: vscode.WorkspaceFolder | undefined, file: string): T | undefined {
+async function loadJSON<T>(
+  folder: vscode.WorkspaceFolder | undefined,
+  file: string,
+): Promise<T | undefined> {
   if (folder) {
     try {
-      const content = fs.readFileSync(path.join(folder.uri.fsPath, file), 'utf8');
+      const content = await fs.readFile(path.join(folder.uri.fsPath, file), 'utf8');
       return JSON.parse(content);
     } catch (error) {
       // silently ignore
@@ -393,11 +436,11 @@ function loadJSON<T>(folder: vscode.WorkspaceFolder | undefined, file: string): 
 /*
  * try to find the entry point ('main') from the package.json
  */
-function guessProgramFromPackage(
+async function guessProgramFromPackage(
   folder: vscode.WorkspaceFolder | undefined,
   packageJson: IPartialPackageJson,
   resolve: boolean,
-): string | undefined {
+): Promise<string | undefined> {
   let program: string | undefined;
 
   try {
@@ -419,8 +462,8 @@ function guessProgramFromPackage(
       if (
         resolve &&
         targetPath &&
-        !fs.existsSync(targetPath) &&
-        !fs.existsSync(targetPath + '.js')
+        !(await existsInjected(fs, targetPath)) &&
+        !(await existsInjected(fs, targetPath + '.js'))
       ) {
         return undefined;
       }

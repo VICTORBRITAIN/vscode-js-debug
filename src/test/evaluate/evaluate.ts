@@ -197,6 +197,9 @@ describe('evaluate', () => {
   foo: true,
   recurse: [Circular],
 }`,
+    'new Uint8Array([1, 2, 3])': 'new Uint8Array([1, 2, 3])',
+    'new Uint8Array([1, 2, 3]).buffer': 'new Uint8Array([1, 2, 3]).buffer',
+    'new Float32Array([1.5, 2.5, 3.5])': 'new Float32Array([1.5, 2.5, 3.5])',
     '1n << 100n': '1267650600228229401496703205376n',
     '(() => { const node = document.createElement("div"); node.innerText = "hi"; return node })()': `<div>hi</div>`,
   };
@@ -471,24 +474,5 @@ describe('evaluate', () => {
     await evaluateAtReturn('{ a: { b: true } }');
     await evaluateAtReturn('undefined');
     r.assertLog();
-  });
-
-  itIntegrates('auto expands getter (#447)', async ({ r }) => {
-    const p = await r.launchUrlAndLoad('index.html', { __autoExpandGetters: true });
-
-    // prototype-free objs just to avoid adding prototype noise to tests:
-    await p.logger.evaluateAndLog(`Object.create({ set foo(x) {} })`, { depth: 2 });
-    p.log('');
-
-    await p.logger.evaluateAndLog(`Object.create({ get foo() { return 42 } })`, { depth: 2 });
-    p.log('');
-
-    await p.logger.evaluateAndLog(`Object.create({ get foo() { throw 'wat'; } })`, { depth: 2 });
-    p.log('');
-
-    await p.logger.evaluateAndLog(`Object.create({ normalObject: true })`, { depth: 2 });
-    p.log('');
-
-    p.assertLog();
   });
 });

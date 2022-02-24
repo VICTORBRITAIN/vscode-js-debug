@@ -35,7 +35,7 @@ import { IScriptSkipper } from './scriptSkipper/scriptSkipper';
 import { SmartStepper } from './smartStepping';
 import { ISourceWithMap, SourceContainer, SourceFromMap } from './sources';
 import { Thread } from './threads';
-import { VariableStore } from './variables';
+import { VariableStore } from './variableStore';
 
 const localize = nls.loadMessageBundle();
 
@@ -48,6 +48,7 @@ export class DebugAdapter implements IDisposable {
   private _disposables = new DisposableList();
   private _customBreakpoints = new Set<string>();
   private _thread: Thread | undefined;
+  private _threadDeferred = getDeferred<Thread>();
   private _configurationDoneDeferred: IDeferred<void>;
   private lastBreakpointId = 0;
   private readonly _cdpProxyProvider = this._services.get<ICdpProxyProvider>(ICdpProxyProvider);
@@ -84,6 +85,8 @@ export class DebugAdapter implements IDisposable {
     this.dap.on('threads', () => this._onThreads());
     this.dap.on('stackTrace', params => this._withThread(thread => thread.stackTrace(params)));
     this.dap.on('variables', params => this._onVariables(params));
+    this.dap.on('readMemory', params => this._onReadMemory(params));
+    this.dap.on('writeMemory', params => this._onWriteMemory(params));
     this.dap.on('setVariable', params => this._onSetVariable(params));
     this.dap.on('setExpression', params => this._onSetExpression(params));
     this.dap.on('continue', () => this._withThread(thread => thread.resume()));
@@ -93,7 +96,7 @@ export class DebugAdapter implements IDisposable {
     this.dap.on('stepOut', () => this._withThread(thread => thread.stepOut()));
     this.dap.on('restartFrame', params => this._withThread(thread => thread.restartFrame(params)));
     this.dap.on('scopes', params => this._withThread(thread => thread.scopes(params)));
-    this.dap.on('evaluate', params => this._withThread(thread => thread.evaluate(params)));
+    this.dap.on('evaluate', params => this.onEvaluate(params));
     this.dap.on('completions', params => this._withThread(thread => thread.completions(params)));
     this.dap.on('exceptionInfo', () => this._withThread(thread => thread.exceptionInfo()));
     this.dap.on('enableCustomBreakpoints', params => this.enableCustomBreakpoints(params));
@@ -112,12 +115,21 @@ export class DebugAdapter implements IDisposable {
     );
     this.dap.on('createDiagnostics', params => this._dumpDiagnostics(params));
     this.dap.on('requestCDPProxy', () => this._requestCDPProxy());
+    this.dap.on('setExcludedCallers', params => this._onSetExcludedCallers(params));
   }
 
   public async launchBlocker(): Promise<void> {
     await this._configurationDoneDeferred.promise;
     await this._services.get<IExceptionPauseService>(IExceptionPauseService).launchBlocker;
     await this.breakpointManager.launchBlocker();
+  }
+
+  async _onSetExcludedCallers({
+    callers,
+  }: Dap.SetExcludedCallersParams): Promise<Dap.SetExcludedCallersResult> {
+    const thread = await this._threadDeferred.promise;
+    thread.setExcludedCallers(callers);
+    return {};
   }
 
   async _onInitialize(params: Dap.InitializeParams): Promise<Dap.InitializeResult | Dap.Error> {
@@ -136,6 +148,8 @@ export class DebugAdapter implements IDisposable {
       supportsConditionalBreakpoints: true,
       supportsHitConditionalBreakpoints: true,
       supportsEvaluateForHovers: true,
+      supportsReadMemoryRequest: true,
+      supportsWriteMemoryRequest: true,
       exceptionBreakpointFilters: [
         {
           filter: PauseOnExceptionsState.All,
@@ -185,7 +199,6 @@ export class DebugAdapter implements IDisposable {
       supportsClipboardContext: true,
       supportsExceptionFilterOptions: true,
       //supportsDataBreakpoints: false,
-      //supportsReadMemoryRequest: false,
       //supportsDisassembleRequest: false,
     };
   }
@@ -265,19 +278,54 @@ export class DebugAdapter implements IDisposable {
     return { threads };
   }
 
-  _findVariableStore(variablesReference: number): VariableStore | undefined {
-    if (!this._thread) return;
+  private findVariableStore(fn: (store: VariableStore) => boolean) {
+    if (!this._thread) {
+      return undefined;
+    }
 
     const pausedVariables = this._thread.pausedVariables();
-    if (pausedVariables?.hasVariables(variablesReference)) return pausedVariables;
-    if (this._thread.replVariables.hasVariables(variablesReference))
+    if (pausedVariables && fn(pausedVariables)) {
+      return pausedVariables;
+    }
+
+    if (fn(this._thread.replVariables)) {
       return this._thread.replVariables;
+    }
+
+    return undefined;
   }
 
   async _onVariables(params: Dap.VariablesParams): Promise<Dap.VariablesResult> {
-    const variableStore = this._findVariableStore(params.variablesReference);
-    if (!variableStore) return { variables: [] };
-    return { variables: await variableStore.getVariables(params) };
+    const variableStore = this.findVariableStore(v => v.hasVariable(params.variablesReference));
+    return { variables: (await variableStore?.getVariables(params)) ?? [] };
+  }
+
+  async _onReadMemory(params: Dap.ReadMemoryParams): Promise<Dap.ReadMemoryResult> {
+    const ref = params.memoryReference;
+    const memory = await this.findVariableStore(v => v.hasMemory(ref))?.readMemory(
+      ref,
+      params.offset ?? 0,
+      params.count,
+    );
+    if (!memory) {
+      return { address: '0', unreadableBytes: params.count };
+    }
+
+    return {
+      address: '0',
+      data: memory.toString('base64'),
+      unreadableBytes: params.count - memory.length,
+    };
+  }
+
+  async _onWriteMemory(params: Dap.WriteMemoryParams): Promise<Dap.WriteMemoryResult> {
+    const ref = params.memoryReference;
+    const bytesWritten = await this.findVariableStore(v => v.hasMemory(ref))?.writeMemory(
+      ref,
+      params.offset ?? 0,
+      Buffer.from(params.data, 'base64'),
+    );
+    return { bytesWritten };
   }
 
   async _onSetExpression(params: Dap.SetExpressionParams): Promise<Dap.SetExpressionResult> {
@@ -295,7 +343,7 @@ export class DebugAdapter implements IDisposable {
   }
 
   async _onSetVariable(params: Dap.SetVariableParams): Promise<Dap.SetVariableResult | Dap.Error> {
-    const variableStore = this._findVariableStore(params.variablesReference);
+    const variableStore = this.findVariableStore(v => v.hasVariable(params.variablesReference));
     if (!variableStore)
       return errors.createSilentError(localize('error.variableNotFound', 'Variable not found'));
     params.value = sourceUtils.wrapObjectLiteral(params.value.trim());
@@ -353,6 +401,7 @@ export class DebugAdapter implements IDisposable {
 
     this.breakpointManager.setThread(this._thread);
     this._services.get(DiagnosticToolSuggester).attach(cdp);
+    this._threadDeferred.resolve(this._thread);
 
     return this._thread;
   }
@@ -432,7 +481,18 @@ export class DebugAdapter implements IDisposable {
     return {};
   }
 
-  async _dumpDiagnostics(params: Dap.CreateDiagnosticsParams) {
+  private onEvaluate(args: Dap.EvaluateParams): Promise<Dap.EvaluateResult> {
+    // Rewrite the old ".scripts" command to the new diagnostic tool
+    if (args.expression === '.scripts') {
+      return this._dumpDiagnostics({ fromSuggestion: false })
+        .then(this.dap.openDiagnosticTool)
+        .then(() => ({ result: 'Opening diagnostic tool...', variablesReference: 0 }));
+    } else {
+      return this._withThread(thread => thread.evaluate(args));
+    }
+  }
+
+  private async _dumpDiagnostics(params: Dap.CreateDiagnosticsParams) {
     const out = { file: await this._services.get(Diagnostics).generateHtml() };
     if (params.fromSuggestion) {
       this._services

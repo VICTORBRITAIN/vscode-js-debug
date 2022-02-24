@@ -2,14 +2,14 @@
  * Copyright (C) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------*/
 
+import { injectable } from 'inversify';
 import type * as vscodeType from 'vscode';
-import { LogTag, ILogger } from '../logging';
+import { FileGlobList } from '../fileGlobList';
+import { ILogger, LogTag } from '../logging';
 import { forceForwardSlashes } from '../pathUtils';
 import { NodeSearchStrategy } from './nodeSearchStrategy';
 import { ISourceMapMetadata } from './sourceMap';
 import { createMetadataForFile, ISearchStrategy } from './sourceMapRepository';
-import { injectable } from 'inversify';
-import { FileGlobList } from '../fileGlobList';
 
 /**
  * A source map repository that uses VS Code's proposed search API to
@@ -53,8 +53,12 @@ export class CodeSearchStrategy implements ISearchStrategy {
     outFiles: FileGlobList,
     onChild: (child: Required<ISourceMapMetadata>) => T | Promise<T>,
   ): Promise<T[]> {
-    const todo: Promise<T | void>[] = [];
+    // Fallback for unhandled case: https://github.com/microsoft/vscode/issues/104889#issuecomment-993722692
+    if (outFiles.patterns.some(p => p.startsWith('..'))) {
+      return this.nodeStrategy.streamChildrenWithSourcemaps(outFiles, onChild);
+    }
 
+    const todo: Promise<T | void>[] = [];
     await this.vscode.workspace.findTextInFiles(
       { pattern: 'sourceMappingURL', isCaseSensitive: true },
       {
@@ -78,7 +82,9 @@ export class CodeSearchStrategy implements ISearchStrategy {
 
     this.logger.info(LogTag.SourceMapParsing, `findTextInFiles search found ${todo.length} files`);
 
-    return (await Promise.all(todo)).filter((t): t is T => t !== undefined);
+    // Type annotation is necessary for https://github.com/microsoft/TypeScript/issues/47144
+    const results: (T | void)[] = await Promise.all(todo);
+    return results.filter((t): t is T => t !== undefined);
   }
 
   private getTextSearchOptions(files: FileGlobList): vscodeType.FindTextInFilesOptions {

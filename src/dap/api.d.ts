@@ -148,6 +148,13 @@ export namespace Dap {
     invalidated(params: InvalidatedEventParams): void;
 
     /**
+     * This event indicates that some memory range has been updated. It should only be sent if the debug adapter has received a value true for the `supportsMemoryEvent` capability of the `initialize` request.
+     * Clients typically react to the event by re-issuing a `readMemory` request if they show the memory identified by the `memoryReference` and if the updated memory range overlaps the displayed range. Clients should not make assumptions how individual memory references relate to each other, so they should not assume that they are part of a single continuous address range and might overlap.
+     * Debug adapters can use this event to indicate that the contents of a memory range has changed due to some other DAP request like `setVariable` or `setExpression`. Debug adapters are not expected to emit this event for each and every memory change of a running program, because that information is typically not available from debuggers and it would flood clients with too many events.
+     */
+    memory(params: MemoryEventParams): void;
+
+    /**
      * This optional request is sent from the debug adapter to the client to run a command in a terminal.
      * This is typically used to launch the debuggee in a terminal provided by the client.
      * This request should only be called if the client has passed the value true for the 'supportsRunInTerminalRequest' capability of the 'initialize' request.
@@ -404,31 +411,34 @@ export namespace Dap {
     ): Promise<SetInstructionBreakpointsResult>;
 
     /**
-     * The request starts the debuggee to run again.
+     * The request resumes execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      */
     on(
       request: 'continue',
       handler: (params: ContinueParams) => Promise<ContinueResult | Error>,
     ): () => void;
     /**
-     * The request starts the debuggee to run again.
+     * The request resumes execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      */
     continueRequest(params: ContinueParams): Promise<ContinueResult>;
 
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request executes one step (in the given granularity) for the specified thread and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     on(request: 'next', handler: (params: NextParams) => Promise<NextResult | Error>): () => void;
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request executes one step (in the given granularity) for the specified thread and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     nextRequest(params: NextParams): Promise<NextResult>;
 
     /**
-     * The request starts the debuggee to step into a function/method if possible.
-     * If it cannot step into a target, 'stepIn' behaves like 'next'.
+     * The request resumes the given thread to step into a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
+     * If the request cannot step into a target, 'stepIn' behaves like the 'next' request.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * If there are multiple function/method calls (or other targets) on the source line,
      * the optional argument 'targetId' can be used to control into which target the 'stepIn' should occur.
@@ -439,8 +449,9 @@ export namespace Dap {
       handler: (params: StepInParams) => Promise<StepInResult | Error>,
     ): () => void;
     /**
-     * The request starts the debuggee to step into a function/method if possible.
-     * If it cannot step into a target, 'stepIn' behaves like 'next'.
+     * The request resumes the given thread to step into a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
+     * If the request cannot step into a target, 'stepIn' behaves like the 'next' request.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * If there are multiple function/method calls (or other targets) on the source line,
      * the optional argument 'targetId' can be used to control into which target the 'stepIn' should occur.
@@ -449,7 +460,8 @@ export namespace Dap {
     stepInRequest(params: StepInParams): Promise<StepInResult>;
 
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request resumes the given thread to step out (return) from a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     on(
@@ -457,13 +469,15 @@ export namespace Dap {
       handler: (params: StepOutParams) => Promise<StepOutResult | Error>,
     ): () => void;
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request resumes the given thread to step out (return) from a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     stepOutRequest(params: StepOutParams): Promise<StepOutResult>;
 
     /**
-     * The request starts the debuggee to run one step backwards.
+     * The request executes one backward step (in the given granularity) for the specified thread and allows all other threads to run backward freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
@@ -472,14 +486,15 @@ export namespace Dap {
       handler: (params: StepBackParams) => Promise<StepBackResult | Error>,
     ): () => void;
     /**
-     * The request starts the debuggee to run one step backwards.
+     * The request executes one backward step (in the given granularity) for the specified thread and allows all other threads to run backward freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
     stepBackRequest(params: StepBackParams): Promise<StepBackResult>;
 
     /**
-     * The request starts the debuggee to run backward.
+     * The request resumes backward execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
     on(
@@ -487,7 +502,7 @@ export namespace Dap {
       handler: (params: ReverseContinueParams) => Promise<ReverseContinueResult | Error>,
     ): () => void;
     /**
-     * The request starts the debuggee to run backward.
+     * The request resumes backward execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
     reverseContinueRequest(params: ReverseContinueParams): Promise<ReverseContinueResult>;
@@ -581,6 +596,7 @@ export namespace Dap {
 
     /**
      * Set the variable with the given name in the variable container to a new value. Clients should only call this request if the capability 'supportsSetVariable' is true.
+     * If a debug adapter implements both setVariable and setExpression, a client will only use setExpression if the variable has an evaluateName property.
      */
     on(
       request: 'setVariable',
@@ -588,6 +604,7 @@ export namespace Dap {
     ): () => void;
     /**
      * Set the variable with the given name in the variable container to a new value. Clients should only call this request if the capability 'supportsSetVariable' is true.
+     * If a debug adapter implements both setVariable and setExpression, a client will only use setExpression if the variable has an evaluateName property.
      */
     setVariableRequest(params: SetVariableParams): Promise<SetVariableResult>;
 
@@ -675,6 +692,7 @@ export namespace Dap {
      * Evaluates the given 'value' expression and assigns it to the 'expression' which must be a modifiable l-value.
      * The expressions have access to any variables and arguments that are in scope of the specified frame.
      * Clients should only call this request if the capability 'supportsSetExpression' is true.
+     * If a debug adapter implements both setExpression and setVariable, a client will only use setExpression if the variable has an evaluateName property.
      */
     on(
       request: 'setExpression',
@@ -684,6 +702,7 @@ export namespace Dap {
      * Evaluates the given 'value' expression and assigns it to the 'expression' which must be a modifiable l-value.
      * The expressions have access to any variables and arguments that are in scope of the specified frame.
      * Clients should only call this request if the capability 'supportsSetExpression' is true.
+     * If a debug adapter implements both setExpression and setVariable, a client will only use setExpression if the variable has an evaluateName property.
      */
     setExpressionRequest(params: SetExpressionParams): Promise<SetExpressionResult>;
 
@@ -762,6 +781,20 @@ export namespace Dap {
      * Clients should only call this request if the capability 'supportsReadMemoryRequest' is true.
      */
     readMemoryRequest(params: ReadMemoryParams): Promise<ReadMemoryResult>;
+
+    /**
+     * Writes bytes to memory at the provided location.
+     * Clients should only call this request if the capability 'supportsWriteMemoryRequest' is true.
+     */
+    on(
+      request: 'writeMemory',
+      handler: (params: WriteMemoryParams) => Promise<WriteMemoryResult | Error>,
+    ): () => void;
+    /**
+     * Writes bytes to memory at the provided location.
+     * Clients should only call this request if the capability 'supportsWriteMemoryRequest' is true.
+     */
+    writeMemoryRequest(params: WriteMemoryParams): Promise<WriteMemoryResult>;
 
     /**
      * Disassembles code stored at the provided location.
@@ -1027,6 +1060,11 @@ export namespace Dap {
     suggestDiagnosticTool(params: SuggestDiagnosticToolEventParams): void;
 
     /**
+     * Opens the diagnostic tool if breakpoints don't bind.
+     */
+    openDiagnosticTool(params: OpenDiagnosticToolEventParams): void;
+
+    /**
      * Request WebSocket connection information on a proxy for this debug sessions CDP connection.
      */
     on(
@@ -1037,6 +1075,18 @@ export namespace Dap {
      * Request WebSocket connection information on a proxy for this debug sessions CDP connection.
      */
     requestCDPProxyRequest(params: RequestCDPProxyParams): Promise<RequestCDPProxyResult>;
+
+    /**
+     * Adds an excluded caller/target pair.
+     */
+    on(
+      request: 'setExcludedCallers',
+      handler: (params: SetExcludedCallersParams) => Promise<SetExcludedCallersResult | Error>,
+    ): () => void;
+    /**
+     * Adds an excluded caller/target pair.
+     */
+    setExcludedCallersRequest(params: SetExcludedCallersParams): Promise<SetExcludedCallersResult>;
   }
 
   export interface TestApi {
@@ -1238,6 +1288,18 @@ export namespace Dap {
     ): Promise<InvalidatedEventParams>;
 
     /**
+     * This event indicates that some memory range has been updated. It should only be sent if the debug adapter has received a value true for the `supportsMemoryEvent` capability of the `initialize` request.
+     * Clients typically react to the event by re-issuing a `readMemory` request if they show the memory identified by the `memoryReference` and if the updated memory range overlaps the displayed range. Clients should not make assumptions how individual memory references relate to each other, so they should not assume that they are part of a single continuous address range and might overlap.
+     * Debug adapters can use this event to indicate that the contents of a memory range has changed due to some other DAP request like `setVariable` or `setExpression`. Debug adapters are not expected to emit this event for each and every memory change of a running program, because that information is typically not available from debuggers and it would flood clients with too many events.
+     */
+    on(request: 'memory', handler: (params: MemoryEventParams) => void): void;
+    off(request: 'memory', handler: (params: MemoryEventParams) => void): void;
+    once(
+      request: 'memory',
+      filter?: (event: MemoryEventParams) => boolean,
+    ): Promise<MemoryEventParams>;
+
+    /**
      * This optional request is sent from the debug adapter to the client to run a command in a terminal.
      * This is typically used to launch the debuggee in a terminal provided by the client.
      * This request should only be called if the client has passed the value true for the 'supportsRunInTerminalRequest' capability of the 'initialize' request.
@@ -1350,19 +1412,21 @@ export namespace Dap {
     ): Promise<SetInstructionBreakpointsResult>;
 
     /**
-     * The request starts the debuggee to run again.
+     * The request resumes execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      */
     continue(params: ContinueParams): Promise<ContinueResult>;
 
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request executes one step (in the given granularity) for the specified thread and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     next(params: NextParams): Promise<NextResult>;
 
     /**
-     * The request starts the debuggee to step into a function/method if possible.
-     * If it cannot step into a target, 'stepIn' behaves like 'next'.
+     * The request resumes the given thread to step into a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
+     * If the request cannot step into a target, 'stepIn' behaves like the 'next' request.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * If there are multiple function/method calls (or other targets) on the source line,
      * the optional argument 'targetId' can be used to control into which target the 'stepIn' should occur.
@@ -1371,20 +1435,22 @@ export namespace Dap {
     stepIn(params: StepInParams): Promise<StepInResult>;
 
     /**
-     * The request starts the debuggee to run again for one step.
+     * The request resumes the given thread to step out (return) from a function/method and allows all other threads to run freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      */
     stepOut(params: StepOutParams): Promise<StepOutResult>;
 
     /**
-     * The request starts the debuggee to run one step backwards.
+     * The request executes one backward step (in the given granularity) for the specified thread and allows all other threads to run backward freely by resuming them.
+     * If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true prevents other suspended threads from resuming.
      * The debug adapter first sends the response and then a 'stopped' event (with reason 'step') after the step has completed.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
     stepBack(params: StepBackParams): Promise<StepBackResult>;
 
     /**
-     * The request starts the debuggee to run backward.
+     * The request resumes backward execution of all threads. If the debug adapter supports single thread execution (see capability 'supportsSingleThreadExecutionRequests') setting the 'singleThread' argument to true resumes only the specified thread. If not all threads were resumed, the 'allThreadsContinued' attribute of the response must be set to false.
      * Clients should only call this request if the capability 'supportsStepBack' is true.
      */
     reverseContinue(params: ReverseContinueParams): Promise<ReverseContinueResult>;
@@ -1430,6 +1496,7 @@ export namespace Dap {
 
     /**
      * Set the variable with the given name in the variable container to a new value. Clients should only call this request if the capability 'supportsSetVariable' is true.
+     * If a debug adapter implements both setVariable and setExpression, a client will only use setExpression if the variable has an evaluateName property.
      */
     setVariable(params: SetVariableParams): Promise<SetVariableResult>;
 
@@ -1471,6 +1538,7 @@ export namespace Dap {
      * Evaluates the given 'value' expression and assigns it to the 'expression' which must be a modifiable l-value.
      * The expressions have access to any variables and arguments that are in scope of the specified frame.
      * Clients should only call this request if the capability 'supportsSetExpression' is true.
+     * If a debug adapter implements both setExpression and setVariable, a client will only use setExpression if the variable has an evaluateName property.
      */
     setExpression(params: SetExpressionParams): Promise<SetExpressionResult>;
 
@@ -1506,6 +1574,12 @@ export namespace Dap {
      * Clients should only call this request if the capability 'supportsReadMemoryRequest' is true.
      */
     readMemory(params: ReadMemoryParams): Promise<ReadMemoryResult>;
+
+    /**
+     * Writes bytes to memory at the provided location.
+     * Clients should only call this request if the capability 'supportsWriteMemoryRequest' is true.
+     */
+    writeMemory(params: WriteMemoryParams): Promise<WriteMemoryResult>;
 
     /**
      * Disassembles code stored at the provided location.
@@ -1724,9 +1798,30 @@ export namespace Dap {
     ): Promise<SuggestDiagnosticToolEventParams>;
 
     /**
+     * Opens the diagnostic tool if breakpoints don't bind.
+     */
+    on(
+      request: 'openDiagnosticTool',
+      handler: (params: OpenDiagnosticToolEventParams) => void,
+    ): void;
+    off(
+      request: 'openDiagnosticTool',
+      handler: (params: OpenDiagnosticToolEventParams) => void,
+    ): void;
+    once(
+      request: 'openDiagnosticTool',
+      filter?: (event: OpenDiagnosticToolEventParams) => boolean,
+    ): Promise<OpenDiagnosticToolEventParams>;
+
+    /**
      * Request WebSocket connection information on a proxy for this debug sessions CDP connection.
      */
     requestCDPProxy(params: RequestCDPProxyParams): Promise<RequestCDPProxyResult>;
+
+    /**
+     * Adds an excluded caller/target pair.
+     */
+    setExcludedCallers(params: SetExcludedCallersParams): Promise<SetExcludedCallersResult>;
   }
 
   export interface AttachParams {
@@ -1858,16 +1953,19 @@ export namespace Dap {
 
   export interface ContinueParams {
     /**
-     * Continue execution for the specified thread (if possible).
-     * If the backend cannot continue on a single thread but will continue on all threads, it should set the 'allThreadsContinued' attribute in the response to true.
+     * Specifies the active thread. If the debug adapter supports single thread execution (see 'supportsSingleThreadExecutionRequests') and the optional argument 'singleThread' is true, only the thread with this ID is resumed.
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, execution is resumed only for the thread with given 'threadId'.
+     */
+    singleThread?: boolean;
   }
 
   export interface ContinueResult {
     /**
-     * If true, the 'continue' request has ignored the specified thread and continued all threads instead.
-     * If this attribute is missing a value of 'true' is assumed for backward compatibility.
+     * The value true (or a missing property) signals to the client that all threads have been resumed. The value false must be returned if not all threads were resumed.
      */
     allThreadsContinued?: boolean;
   }
@@ -1913,7 +2011,7 @@ export namespace Dap {
 
     /**
      * The name of the Variable's child to obtain data breakpoint information for.
-     * If variablesReference isn’t provided, this can be an expression.
+     * If variablesReference isn't provided, this can be an expression.
      */
     name: string;
   }
@@ -2246,6 +2344,11 @@ export namespace Dap {
      * Client supports the invalidated event.
      */
     supportsInvalidatedEvent?: boolean;
+
+    /**
+     * Client supports the memory event.
+     */
+    supportsMemoryEvent?: boolean;
   }
 
   export interface InitializeResult {
@@ -2400,6 +2503,11 @@ export namespace Dap {
     supportsReadMemoryRequest?: boolean;
 
     /**
+     * The debug adapter supports the 'writeMemory' request.
+     */
+    supportsWriteMemoryRequest?: boolean;
+
+    /**
      * The debug adapter supports the 'disassemble' request.
      */
     supportsDisassembleRequest?: boolean;
@@ -2433,6 +2541,11 @@ export namespace Dap {
      * The debug adapter supports 'filterOptions' as an argument on the 'setExceptionBreakpoints' request.
      */
     supportsExceptionFilterOptions?: boolean;
+
+    /**
+     * The debug adapter supports the 'singleThread' property on the execution requests ('continue', 'next', 'stepIn', 'stepOut', 'reverseContinue', 'stepBack').
+     */
+    supportsSingleThreadExecutionRequests?: boolean;
   }
 
   export interface InitializedEventParams {}
@@ -2546,6 +2659,23 @@ export namespace Dap {
 
   export interface LongPredictionEventParams {}
 
+  export interface MemoryEventParams {
+    /**
+     * Memory reference of a memory range that has been updated.
+     */
+    memoryReference: string;
+
+    /**
+     * Starting offset in bytes where memory has been updated. Can be negative.
+     */
+    offset: integer;
+
+    /**
+     * Number of bytes updated.
+     */
+    count: integer;
+  }
+
   export interface ModuleEventParams {
     /**
      * The reason for the event.
@@ -2584,9 +2714,14 @@ export namespace Dap {
 
   export interface NextParams {
     /**
-     * Execute 'next' for this thread.
+     * Specifies the thread for which to resume execution for one step (of the given granularity).
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, all other suspended threads are not resumed.
+     */
+    singleThread?: boolean;
 
     /**
      * Optional granularity to step. If no granularity is specified, a granularity of 'statement' is assumed.
@@ -2596,11 +2731,18 @@ export namespace Dap {
 
   export interface NextResult {}
 
+  export interface OpenDiagnosticToolEventParams {
+    /**
+     * Location of the generated report on disk
+     */
+    file: string;
+  }
+
   export interface OutputEventParams {
     /**
-     * The output category. If not specified, 'console' is assumed.
+     * The output category. If not specified or if the category is not understand by the client, 'console' is assumed.
      */
-    category?: 'console' | 'stdout' | 'stderr' | 'telemetry';
+    category?: 'console' | 'important' | 'stdout' | 'stderr' | 'telemetry';
 
     /**
      * The output to report.
@@ -2890,9 +3032,14 @@ export namespace Dap {
 
   export interface ReverseContinueParams {
     /**
-     * Execute 'reverseContinue' for this thread.
+     * Specifies the active thread. If the debug adapter supports single thread execution (see 'supportsSingleThreadExecutionRequests') and the optional argument 'singleThread' is true, only the thread with this ID is resumed.
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, backward execution is resumed only for the thread with given 'threadId'.
+     */
+    singleThread?: boolean;
   }
 
   export interface ReverseContinueResult {}
@@ -3019,6 +3166,12 @@ export namespace Dap {
      */
     breakpoints?: Breakpoint[];
   }
+
+  export interface SetExcludedCallersParams {
+    callers: ExcludedCaller[];
+  }
+
+  export interface SetExcludedCallersResult {}
 
   export interface SetExpressionParams {
     /**
@@ -3253,9 +3406,14 @@ export namespace Dap {
 
   export interface StepBackParams {
     /**
-     * Execute 'stepBack' for this thread.
+     * Specifies the thread for which to resume execution for one step backwards (of the given granularity).
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, all other suspended threads are not resumed.
+     */
+    singleThread?: boolean;
 
     /**
      * Optional granularity to step. If no granularity is specified, a granularity of 'statement' is assumed.
@@ -3267,9 +3425,14 @@ export namespace Dap {
 
   export interface StepInParams {
     /**
-     * Execute 'stepIn' for this thread.
+     * Specifies the thread for which to resume execution for one step-into (of the given granularity).
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, all other suspended threads are not resumed.
+     */
+    singleThread?: boolean;
 
     /**
      * Optional id of the target to step into.
@@ -3300,9 +3463,14 @@ export namespace Dap {
 
   export interface StepOutParams {
     /**
-     * Execute 'stepOut' for this thread.
+     * Specifies the thread for which to resume execution for one step-out (of the given granularity).
      */
     threadId: integer;
+
+    /**
+     * If this optional flag is true, all other suspended threads are not resumed.
+     */
+    singleThread?: boolean;
 
     /**
      * Optional granularity to step. If no granularity is specified, a granularity of 'statement' is assumed.
@@ -3477,6 +3645,41 @@ export namespace Dap {
     variables: Variable[];
   }
 
+  export interface WriteMemoryParams {
+    /**
+     * Memory reference to the base location to which data should be written.
+     */
+    memoryReference: string;
+
+    /**
+     * Optional offset (in bytes) to be applied to the reference location before writing data. Can be negative.
+     */
+    offset?: integer;
+
+    /**
+     * Optional property to control partial writes. If true, the debug adapter should attempt to write memory even if the entire memory region is not writable. In such a case the debug adapter should stop after hitting the first byte of memory that cannot be written and return the number of bytes written in the response via the 'offset' and 'bytesWritten' properties.
+     * If false or missing, a debug adapter should attempt to verify the region is writable before writing, and fail the response if it is not.
+     */
+    allowPartial?: boolean;
+
+    /**
+     * Bytes to write, encoded using base64.
+     */
+    data: string;
+  }
+
+  export interface WriteMemoryResult {
+    /**
+     * Optional property that should be returned when 'allowPartial' is true to indicate the offset of the first byte of data successfully written. Can be negative.
+     */
+    offset?: integer;
+
+    /**
+     * Optional property that should be returned when 'allowPartial' is true to indicate the number of bytes starting from address that were successfully written.
+     */
+    bytesWritten?: integer;
+  }
+
   /**
    * A Variable is a name/value pair.
    * Optionally a variable can have a 'type' that is shown if space permits or when hovering over the variable's name.
@@ -3492,7 +3695,10 @@ export namespace Dap {
     name: string;
 
     /**
-     * The variable's value. This can be a multi-line text, e.g. for a function the body of a function.
+     * The variable's value.
+     * This can be a multi-line text, e.g. for a function the body of a function.
+     * For structured variables (which do not have a simple value), it is recommended to provide a one line representation of the structured object. This helps to identify the structured object in the collapsed state when its children are not yet visible.
+     * An empty string can be used if no value should be shown in the UI.
      */
     value: string;
 
@@ -3716,6 +3922,23 @@ export namespace Dap {
      * The attribute is only honored by a debug adapter if the capability 'supportsHitConditionalBreakpoints' is true.
      */
     hitCondition?: string;
+  }
+
+  export interface ExcludedCaller {
+    target: CallerLocation;
+
+    caller: CallerLocation;
+  }
+
+  export interface CallerLocation {
+    line: integer;
+
+    column: integer;
+
+    /**
+     * Source to be pretty printed.
+     */
+    source: Source;
   }
 
   /**
@@ -4183,7 +4406,7 @@ export namespace Dap {
     /**
      * Set of attributes represented as an array of strings. Before introducing additional values, try to use the listed values.
      */
-    attributes?:
+    attributes?: (
       | 'static'
       | 'constant'
       | 'readOnly'
@@ -4191,12 +4414,18 @@ export namespace Dap {
       | 'hasObjectId'
       | 'canHaveObjectId'
       | 'hasSideEffects'
-      | 'hasDataBreakpoint'[];
+      | 'hasDataBreakpoint'
+    )[];
 
     /**
      * Visibility of variable. Before introducing additional values, try to use the listed values.
      */
     visibility?: 'public' | 'private' | 'protected' | 'internal' | 'final';
+
+    /**
+     * If true clients can present the variable with a UI that supports a specific gesture to trigger its evaluation.
+     */
+    lazy?: boolean;
   }
 
   /**
@@ -4284,6 +4513,11 @@ export namespace Dap {
      * A string that should be used when comparing this item with other items. When `falsy` the label is used.
      */
     sortText?: string;
+
+    /**
+     * A human-readable string with additional information about this item, like type or symbol information.
+     */
+    detail?: string;
 
     /**
      * The item's type. Typically the client uses this information to render the item in the UI with an icon.
@@ -4477,6 +4711,11 @@ export namespace Dap {
     supportsReadMemoryRequest?: boolean;
 
     /**
+     * The debug adapter supports the 'writeMemory' request.
+     */
+    supportsWriteMemoryRequest?: boolean;
+
+    /**
      * The debug adapter supports the 'disassemble' request.
      */
     supportsDisassembleRequest?: boolean;
@@ -4510,6 +4749,11 @@ export namespace Dap {
      * The debug adapter supports 'filterOptions' as an argument on the 'setExceptionBreakpoints' request.
      */
     supportsExceptionFilterOptions?: boolean;
+
+    /**
+     * The debug adapter supports the 'singleThread' property on the execution requests ('continue', 'next', 'stepIn', 'stepOut', 'reverseContinue', 'stepBack').
+     */
+    supportsSingleThreadExecutionRequests?: boolean;
   }
 
   /**
