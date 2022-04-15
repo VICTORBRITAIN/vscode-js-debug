@@ -36,6 +36,7 @@ import { IPortLeaseTracker, PortLeaseTracker } from './adapter/portLeaseTracker'
 import { IProfileController, ProfileController } from './adapter/profileController';
 import { IProfilerFactory, ProfilerFactory } from './adapter/profiling';
 import { BasicCpuProfiler } from './adapter/profiling/basicCpuProfiler';
+import { BasicHeapProfiler } from './adapter/profiling/basicHeapProfiler';
 import { HeapDumpProfiler } from './adapter/profiling/heapDumpProfiler';
 import { IResourceProvider } from './adapter/resourceProvider';
 import { IRequestOptionsProvider } from './adapter/resourceProvider/requestOptionsProvider';
@@ -145,7 +146,6 @@ export const createTargetContainer = (
   container.bind(ICdpApi).toConstantValue(cdp);
   container.bind(ITarget).toConstantValue(target);
   container.bind(ITargetOrigin).toConstantValue(target.targetOrigin());
-  container.bind(ISourcePathResolver).toConstantValue(target.sourcePathResolver());
   container.bind(IResourceProvider).to(StatefulResourceProvider).inSingletonScope();
   container.bind(IBreakpointConditionFactory).to(BreakpointConditionFactory).inSingletonScope();
   container.bind(LogPointCompiler).toSelf().inSingletonScope();
@@ -182,6 +182,7 @@ export const createTargetContainer = (
   container.bind(IConsole).to(Console).inSingletonScope(); // dispose is handled by the Thread
 
   container.bind(BasicCpuProfiler).toSelf();
+  container.bind(BasicHeapProfiler).toSelf();
   container.bind(HeapDumpProfiler).toSelf();
   container.bind(IProfilerFactory).to(ProfilerFactory).inSingletonScope();
   container.bind(IProfileController).to(ProfileController).inSingletonScope();

@@ -114,7 +114,7 @@ export interface IVariableContainer {
  */
 export interface IVariable extends IVariableContainer {
   readonly sortOrder: number;
-  toDap(context: PreviewContextType): Promise<Dap.Variable>;
+  toDap(context: PreviewContextType, valueFormat?: Dap.ValueFormat): Promise<Dap.Variable>;
 }
 
 interface IMemoryReadable {
@@ -403,7 +403,9 @@ class VariableContext {
     const hasSetter = p.set && p.set.type !== 'undefined';
 
     if (isPublicDescriptor(p)) {
-      if (p.enumerable === false) {
+      // sort non-enumerable properties as private, except for getters, which
+      // are automatically non-enumerable but not (automatically) considered private (#1215)
+      if (p.enumerable === false && !hasGetter) {
         ctx.presentationHint.visibility = 'internal';
         ctx.sortOrder = SortOrder.Private;
       }
@@ -491,6 +493,10 @@ class Variable implements IVariable {
       return this.context.name;
     }
 
+    if (parent instanceof AccessorVariable) {
+      return parent.accessor;
+    }
+
     if (typeof name === 'number' || /^[0-9]+$/.test(name)) {
       return `${parent.accessor}[${name}]`;
     }
@@ -509,7 +515,10 @@ class Variable implements IVariable {
   }
 
   /** @inheritdoc */
-  public async toDap(previewContext: PreviewContextType): Promise<Dap.Variable> {
+  public async toDap(
+    previewContext: PreviewContextType,
+    valueFormat?: Dap.ValueFormat,
+  ): Promise<Dap.Variable> {
     let name = this.context.name;
     if (this.context.parent instanceof Scope) {
       name = await this.context.parent.getRename(name);
@@ -517,7 +526,7 @@ class Variable implements IVariable {
 
     return Promise.resolve({
       name,
-      value: objectPreview.previewRemoteObject(this.remoteObject, previewContext),
+      value: objectPreview.previewRemoteObject(this.remoteObject, previewContext, valueFormat),
       evaluateName: this.accessor,
       type: this.remoteObject.type,
       variablesReference: 0,
@@ -670,9 +679,12 @@ class ErrorVariable extends Variable {
 }
 
 class ObjectVariable extends Variable implements IMemoryReadable {
-  public override async toDap(previewContext: PreviewContextType): Promise<Dap.Variable> {
+  public override async toDap(
+    previewContext: PreviewContextType,
+    valueFormat?: Dap.ValueFormat,
+  ): Promise<Dap.Variable> {
     return {
-      ...(await super.toDap(previewContext)),
+      ...(await super.toDap(previewContext, valueFormat)),
       type: this.remoteObject.className || this.remoteObject.subtype || this.remoteObject.type,
       variablesReference: this.id,
       memoryReference: memoryReadableTypes.has(this.remoteObject.subtype)
@@ -798,14 +810,6 @@ class OutputTableVariable extends ArrayVariable {
 abstract class AccessorVariable extends Variable {
   constructor(context: VariableContext, remoteObject: Cdp.Runtime.RemoteObject) {
     super(context, remoteObject);
-
-    if (!(this.context.parent instanceof Variable)) {
-      throw new Error('AccessorVariable must have variable parent');
-    }
-  }
-
-  public override get accessor(): string {
-    return (this.context.parent as Variable).accessor; // skip adding this "name" to the accessor
   }
 
   public override getChildren(_params: Dap.VariablesParams) {
@@ -814,9 +818,12 @@ abstract class AccessorVariable extends Variable {
 }
 
 class SetterOnlyVariable extends AccessorVariable {
-  public override async toDap(previewContext: PreviewContextType): Promise<Dap.Variable> {
+  public override async toDap(
+    previewContext: PreviewContextType,
+    valueFormat?: Dap.ValueFormat,
+  ): Promise<Dap.Variable> {
     return {
-      ...(await super.toDap(previewContext)),
+      ...(await super.toDap(previewContext, valueFormat)),
       value: 'write-only',
       variablesReference: this.id,
     };
@@ -832,8 +839,11 @@ class GetterVariable extends AccessorVariable {
     super(context, remoteObject);
   }
 
-  public override async toDap(previewContext: PreviewContextType): Promise<Dap.Variable> {
-    const dap = await super.toDap(previewContext);
+  public override async toDap(
+    previewContext: PreviewContextType,
+    valueFormat?: Dap.ValueFormat,
+  ): Promise<Dap.Variable> {
+    const dap = await super.toDap(previewContext, valueFormat);
     dap.variablesReference = this.id;
     dap.presentationHint = { ...dap.presentationHint, lazy: true };
     return dap;
@@ -847,7 +857,12 @@ class GetterVariable extends AccessorVariable {
         args: [this.context.name],
       });
 
-      return [this.context.createVariableByType({ name: '' }, result)];
+      return [
+        this.context.createVariableByType(
+          { name: this.name, presentationHint: this.context.presentationHint },
+          result,
+        ),
+      ];
     } catch (e) {
       if (!(e instanceof RemoteException)) {
         throw e;
@@ -1071,6 +1086,7 @@ export class VariableStore {
             container instanceof Scope || container instanceof OutputVariableContainer
               ? PreviewContextType.Repl
               : PreviewContextType.PropertyValue,
+            params.format,
           )
           .then(dap => ({ v, dap })),
       ),
@@ -1098,7 +1114,7 @@ export class VariableStore {
 
     if (container instanceof Scope || container instanceof Variable) {
       const newVar = await container.setProperty(params.name, params.value);
-      return await newVar.toDap(PreviewContextType.PropertyValue);
+      return await newVar.toDap(PreviewContextType.PropertyValue, params.format);
     } else {
       throw new ProtocolError(
         errors.createSilentError(localize('error.variableNotFound', 'Variable not found')),

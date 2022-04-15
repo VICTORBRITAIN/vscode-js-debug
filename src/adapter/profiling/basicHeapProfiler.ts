@@ -17,22 +17,18 @@ import { SourceAnnotationHelper } from './sourceAnnotationHelper';
 
 const localize = nls.loadMessageBundle();
 
-export interface IBasicProfileParams {
-  precise: boolean;
-}
-
 /**
- * Basic profiler that uses the stable CPU `Profiler` API available everywhere.
+ * Basic profiler that uses the stable `HeapProfiler` API available everywhere.
  * In Chrome, and probably in Node, this will be superceded by the Tracing API.
  */
 @injectable()
-export class BasicCpuProfiler implements IProfiler<IBasicProfileParams> {
-  public static readonly type = 'cpu';
-  public static readonly extension = '.cpuprofile';
-  public static readonly label = localize('profile.cpu.label', 'CPU Profile');
+export class BasicHeapProfiler implements IProfiler<{}> {
+  public static readonly type = 'heap';
+  public static readonly extension = '.heapprofile';
+  public static readonly label = localize('profile.heap.label', 'Heap Profile');
   public static readonly description = localize(
-    'profile.cpu.description',
-    'Generates a .cpuprofile file you can open in the Chrome devtools',
+    'profile.heap.description',
+    'Generates a .heapprofile file you can open in the Chrome devtools',
   );
   public static readonly editable = true;
 
@@ -50,10 +46,10 @@ export class BasicCpuProfiler implements IProfiler<IBasicProfileParams> {
   /**
    * @inheritdoc
    */
-  public async start(_options: StartProfileParams<IBasicProfileParams>, file: string) {
-    await this.cdp.Profiler.enable({});
+  public async start(_options: StartProfileParams<{}>, file: string) {
+    await this.cdp.HeapProfiler.enable({});
 
-    if (!(await this.cdp.Profiler.start({}))) {
+    if (!(await this.cdp.HeapProfiler.startSampling({}))) {
       throw new ProtocolError(profileCaptureError());
     }
 
@@ -95,7 +91,7 @@ class BasicProfile implements IProfile {
   public async dispose() {
     if (!this.disposed) {
       this.disposed = true;
-      await this.cdp.Profiler.disable({});
+      await this.cdp.HeapProfiler.disable({});
       this.stopEmitter.fire();
     }
   }
@@ -104,7 +100,7 @@ class BasicProfile implements IProfile {
    * @inheritdoc
    */
   public async stop() {
-    const result = await this.cdp.Profiler.stop({});
+    const result = await this.cdp.HeapProfiler.stopSampling({});
     if (!result) {
       throw new ProtocolError(profileCaptureError());
     }
@@ -118,32 +114,34 @@ class BasicProfile implements IProfile {
   /**
    * Adds source locations
    */
-  private async annotateSources(profile: Cdp.Profiler.Profile) {
+  private async annotateSources(profile: Cdp.HeapProfiler.SamplingHeapProfile) {
     const helper = new SourceAnnotationHelper(this.sources);
-    const nodes = profile.nodes.map(node => ({
-      ...node,
-      locationId: helper.getLocationIdFor(node.callFrame),
-      positionTicks: node.positionTicks?.map(tick => ({
-        ...tick,
-        // weirdly, line numbers here are 1-based, not 0-based. The position tick
-        // only gives line-level granularity, so 'mark' the entire range of source
-        // code the tick refers to
-        startLocationId: helper.getLocationIdFor({
-          ...node.callFrame,
-          lineNumber: tick.line - 1,
-          columnNumber: 0,
-        }),
-        endLocationId: helper.getLocationIdFor({
-          ...node.callFrame,
-          lineNumber: tick.line,
-          columnNumber: 0,
-        }),
-      })),
-    }));
+
+    const setLocationId = (
+      node: Cdp.HeapProfiler.SamplingHeapProfileNode,
+      destNode: Cdp.HeapProfiler.SamplingHeapProfileNode & {
+        locationId?: number;
+      },
+    ) => {
+      destNode.locationId = helper.getLocationIdFor(node.callFrame);
+
+      for (const child of node.children) {
+        const destChild = { ...child, children: [] };
+        destNode.children.push(destChild);
+        setLocationId(child, destChild);
+      }
+    };
+
+    const head = {
+      ...profile.head,
+      children: [],
+    };
+
+    setLocationId(profile.head, head);
 
     return {
       ...profile,
-      nodes,
+      head,
       $vscode: {
         rootPath: this.workspaceFolder,
         locations: await helper.getLocations(),

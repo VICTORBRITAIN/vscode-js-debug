@@ -2,9 +2,28 @@
 
 This changelog records changes to stable releases since 1.50.2. "TBA" changes here may be available in the [nightly release](https://github.com/microsoft/vscode-js-debug/#nightly-extension) before they're in stable. Note that the minor version (`v1.X.0`) corresponds to the VS Code version js-debug is shipped in, but the patch version (`v1.50.X`) is not meaningful.
 
-## Nightly Only
+## Nightly only
 
-Nothing (yet)
+- fix: sourcemap renames replacing in invalid contexts ([#1201](https://github.com/microsoft/vscode-js-debug/issues/1201))
+
+## v1.65 (March 2022)
+
+### v1.66.1 - 2022-03-24
+
+- feat: adopt `CompletionItem.detail` ([vscode#145645](https://github.com/microsoft/vscode/issues/145645))
+- fix: accessor properties not being writable ([vscode#146001](https://github.com/microsoft/vscode/issues/146001))
+- fix: completions sometimes throwing issue on accessor ([#1218](https://github.com/microsoft/vscode-js-debug/issues/1218))
+
+### v1.66.0 - 2022-03-03
+
+- feat: add heap profiler
+- fix: properly support DAP `valueFormat` ([#1188](https://github.com/microsoft/vscode-js-debug/issues/1188))
+- fix: don't use `pwa-` prefixed launch types in snippets ([#1138](https://github.com/microsoft/vscode-js-debug/issues/1138))
+- fix: readonly attribute not being applied to getter values ([vscode#143790](https://github.com/microsoft/vscode/issues/143790))
+- fix: cwd being lost causing resolution errors in auto attach ([#1212](https://github.com/microsoft/vscode-js-debug/issues/1212))
+- fix: avoid nesting `localRoot`'s in programmatic starts ([#1140](https://github.com/microsoft/vscode-js-debug/issues/1140))
+- fix: icon in "stop profiling" button not spinning ([vscode#136742](https://github.com/microsoft/vscode/issues/136742))
+- refactor: simplify and improve browser connection in WSL and remotes
 
 ## v1.65 (February 2022)
 
@@ -12,7 +31,7 @@ Nothing (yet)
 
 - feat: adopt `isTransient` to avoid persisting debug terminal ([#1196](https://github.com/microsoft/vscode-js-debug/issues/1196))
 - feat: adopt new presentationHint.lazy for getters ([#1211](https://github.com/microsoft/vscode-js-debug/issues/1211))
-- fix: don't use `pwa-` prefixed launch types in snuppets ([#1138](https://github.com/microsoft/vscode-js-debug/issues/1138))
+- fix: don't use `pwa-` prefixed launch types in snippets ([#1138](https://github.com/microsoft/vscode-js-debug/issues/1138))
 - fix: logpoints causing pauses if console.log returns truthy ([#1191](https://github.com/microsoft/vscode-js-debug/issues/1191))
 - fix: handle query string and path fragments in `file`s within the launch config ([vscode#142199](https://github.com/microsoft/vscode/issues/142199))
 - fix: do not narrow outFiles within the workspace folder automatically ([vscode#142641](https://github.com/microsoft/vscode/issues/142641))
